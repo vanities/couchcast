@@ -21,6 +21,7 @@ def setup_logging(verbose: bool = False, interactive: bool = True) -> None:
     HOME.mkdir(parents=True, exist_ok=True)
     file_handler = RotatingFileHandler(LOG, maxBytes=1_000_000, backupCount=2)
     file_handler.setFormatter(logging.Formatter("%(asctime)s %(process)d %(levelname)s %(message)s"))
+    lock_down(LOG)
     handlers: list[logging.Handler] = [file_handler]
     if not interactive:
         stderr_handler = logging.StreamHandler(sys.stderr)
@@ -37,6 +38,13 @@ def setup_logging(verbose: bool = False, interactive: bool = True) -> None:
     root.setLevel(logging.DEBUG if verbose else logging.INFO)
     if not verbose:
         logging.getLogger("pyatv").setLevel(logging.WARNING)
+
+
+def lock_down(path: Path) -> None:
+    """Owner-only. pyatv writes its credential file with the default umask (world-readable)."""
+    if path.exists() and path.stat().st_mode & 0o077:
+        path.chmod(0o600)
+        log.debug("[state] restricted %s to owner-only", path.name)
 
 
 def read_json(path: Path) -> dict:

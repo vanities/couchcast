@@ -67,6 +67,16 @@ def test_pyatv_pin_step_works_with_the_installed_srptools():
     handler.step1(7465)
 
 
+def test_credential_files_are_locked_to_the_owner(tmp_path):
+    from couchcast_helper import state
+
+    creds = tmp_path / "pyatv.json"
+    creds.write_text("{}")
+    creds.chmod(0o644)
+    state.lock_down(creds)
+    assert creds.stat().st_mode & 0o777 == 0o600
+
+
 def test_cli_lists_commands_and_hides_the_firefox_ones():
     from typer.testing import CliRunner
 

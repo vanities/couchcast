@@ -16,6 +16,9 @@ Chrome has a Cast button and Safari has AirPlay. Firefox has neither, so Couchca
 | Needs | The Couchcast helper app on this computer | Nothing else |
 | Quality | Up to 1080p60 (H.264 over AirPlay) | Whatever the TV's YouTube app does |
 
+Tested: no-ads mode from macOS to an Apple TV 4K (gen 2) on tvOS 27.0. YouTube-app mode has not been
+tried on a real TV yet.
+
 **No ads.** The helper resolves the video to YouTube's HLS stream with
 [yt-dlp](https://github.com/yt-dlp/yt-dlp) and hands that stream to the Apple TV over AirPlay with
 [pyatv](https://github.com/postlund/pyatv). The TV plays the video itself, so YouTube's ads, which

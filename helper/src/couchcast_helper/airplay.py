@@ -24,6 +24,7 @@ async def open_storage(loop: asyncio.AbstractEventLoop) -> FileStorage:
     state.HOME.mkdir(parents=True, exist_ok=True)
     storage = FileStorage(str(state.PYATV_STORAGE), loop)
     await storage.load()
+    state.lock_down(state.PYATV_STORAGE)
     return storage
 
 
@@ -75,6 +76,7 @@ async def finish_pairing(storage, pairing: PairingHandler, pin: int) -> None:
     finally:
         await pairing.close()
     await storage.save()
+    state.lock_down(state.PYATV_STORAGE)
     log.info("[airplay] pairing finished in %s", ms(t0))
 
 
