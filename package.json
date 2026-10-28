@@ -1,0 +1,17 @@
+{
+  "name": "couchcast",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "test": "bun test",
+    "lint": "web-ext lint --source-dir extension",
+    "start": "web-ext run --source-dir extension --start-url https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+    "build": "web-ext build --source-dir extension --artifacts-dir web-ext-artifacts --overwrite-dest",
+    "lounge": "bun scripts/lounge-cli.js"
+  },
+  "devDependencies": {
+    "web-ext": "^10.8.0"
+  }
+}

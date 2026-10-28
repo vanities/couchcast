@@ -1,0 +1,141 @@
+import { LoungeError, castVideo, getAvailability, pairWithCode, refreshToken, tokenExpiring } from './lib/lounge.js';
+import { logger } from './lib/log.js';
+import {
+  defaultScreen,
+  hasYouTubeAccess,
+  loadState,
+  removeScreen,
+  requestYouTubeAccess,
+  saveScreen,
+  setDefaultScreen,
+} from './lib/store.js';
+
+const log = logger('options');
+// Big Buck Bunny, from the Blender Foundation's channel.
+const TEST_VIDEO = { videoId: 'aqz-KE-bpKQ', listId: null, startSeconds: 0 };
+
+const $ = (selector) => document.querySelector(selector);
+const errorText = (error) => (error instanceof LoungeError ? error.message : `Something went wrong: ${error.message}`);
+
+function setStatus(element, text, kind = '') {
+  element.textContent = text;
+  element.dataset.kind = kind;
+}
+
+function el(tag, props = {}, children = []) {
+  const node = Object.assign(document.createElement(tag), props);
+  node.append(...children);
+  return node;
+}
+
+async function renderAccess() {
+  $('#access').hidden = await hasYouTubeAccess();
+}
+
+$('#grant').addEventListener('click', async () => {
+  const granted = await requestYouTubeAccess();
+  log.info(`youtube access granted=${granted}`);
+  await renderAccess();
+});
+
+$('#link-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const status = $('#link-status');
+  const button = event.submitter;
+  button.disabled = true;
+  setStatus(status, 'Linking…');
+  try {
+    const screen = await pairWithCode($('#code').value);
+    await saveScreen(screen);
+    $('#code').value = '';
+    setStatus(status, `Linked "${screen.name}". Send it a test video below to make sure it works.`, 'ok');
+    await renderScreens();
+  } catch (error) {
+    log.error(`link failed code=${error.code ?? '-'}: ${error.message}`);
+    setStatus(status, errorText(error), 'error');
+  } finally {
+    button.disabled = false;
+  }
+});
+
+async function renderScreens() {
+  const state = await loadState();
+  const current = defaultScreen(state);
+  $('#screens').replaceChildren(...state.screens.map((screen) => screenRow(screen, state, current)));
+  $('#empty').hidden = state.screens.length > 0;
+}
+
+function screenRow(screen, state, current) {
+  const pill = el('span', { className: 'pill', textContent: 'Checking…' });
+  const note = el('p', { className: 'status' });
+  const detail = [screen.tv?.brand, screen.tv?.model].filter(Boolean).join(' ');
+
+  const test = el('button', { type: 'button', textContent: 'Send test video' });
+  test.addEventListener('click', async () => {
+    test.disabled = true;
+    setStatus(note, 'Sending…');
+    try {
+      await castVideo(screen, TEST_VIDEO, { deviceId: state.deviceId, onScreenUpdate: saveScreen });
+      setStatus(note, 'Sent. Big Buck Bunny should be starting on the TV.', 'ok');
+    } catch (error) {
+      log.error(`test cast failed code=${error.code ?? '-'}: ${error.message}`);
+      setStatus(note, errorText(error), 'error');
+    } finally {
+      test.disabled = false;
+      checkAvailability(screen, pill);
+    }
+  });
+
+  const remove = el('button', { type: 'button', className: 'quiet', textContent: 'Remove' });
+  remove.addEventListener('click', async () => {
+    await removeScreen(screen.screenId);
+    await renderScreens();
+  });
+
+  const actions = [test];
+  if (state.screens.length > 1 && current?.screenId !== screen.screenId) {
+    const makeDefault = el('button', { type: 'button', className: 'quiet', textContent: 'Make default' });
+    makeDefault.addEventListener('click', async () => {
+      await setDefaultScreen(screen.screenId);
+      await renderScreens();
+    });
+    actions.push(makeDefault);
+  }
+  actions.push(remove);
+
+  const title = el('div', { className: 'screen-title' }, [
+    el('strong', { textContent: screen.name }),
+    ...(current?.screenId === screen.screenId && state.screens.length > 1
+      ? [el('span', { className: 'tag', textContent: 'default' })]
+      : []),
+    pill,
+  ]);
+  checkAvailability(screen, pill);
+  return el('li', {}, [
+    title,
+    ...(detail ? [el('p', { className: 'muted', textContent: detail })] : []),
+    el('div', { className: 'actions' }, actions),
+    note,
+  ]);
+}
+
+async function checkAvailability(screen, pill) {
+  try {
+    let current = screen;
+    if (tokenExpiring(current)) {
+      current = await refreshToken(current);
+      await saveScreen(current);
+    }
+    const status = await getAvailability(current);
+    const online = status === 'online';
+    pill.textContent = online ? 'YouTube is open' : 'Open YouTube on the TV';
+    pill.dataset.kind = online ? 'ok' : 'warn';
+  } catch (error) {
+    log.warn(`availability check failed: ${error.message}`);
+    pill.textContent = 'Unknown';
+    pill.dataset.kind = 'warn';
+  }
+}
+
+await renderAccess();
+await renderScreens();

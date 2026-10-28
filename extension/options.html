@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Couchcast settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <main>
+    <header>
+      <img src="icons/icon.svg" alt="" width="44" height="44">
+      <div>
+        <h1>Couchcast</h1>
+        <p class="lede">Send the YouTube video you're watching to the YouTube app on your TV.</p>
+      </div>
+    </header>
+
+    <section id="access" class="banner" hidden>
+      <p>Couchcast talks to your TV through youtube.com and needs your permission to reach it.</p>
+      <button id="grant" type="button">Allow access to youtube.com</button>
+    </section>
+
+    <section>
+      <h2>Link a TV</h2>
+      <ol class="steps">
+        <li>On your TV, open the <strong>YouTube</strong> app.</li>
+        <li>Open <strong>Settings</strong>, then <strong>Link with TV code</strong>.</li>
+        <li>Type the code from the TV here:</li>
+      </ol>
+      <form id="link-form">
+        <input id="code" inputmode="numeric" autocomplete="off" spellcheck="false" placeholder="123 456 789 012" aria-label="TV code" required>
+        <button type="submit">Link TV</button>
+      </form>
+      <p id="link-status" class="status" role="status"></p>
+    </section>
+
+    <section>
+      <h2>Your TVs</h2>
+      <ul id="screens" class="screens"></ul>
+      <p id="empty" class="muted">No TVs linked yet.</p>
+    </section>
+
+    <section>
+      <h2>Casting</h2>
+      <ul class="tips">
+        <li>Click the Couchcast button in the toolbar on any YouTube video. The TV picks up where you are, and the video pauses in Firefox.</li>
+        <li>Right-click a YouTube link and choose <strong>Cast to TV</strong> to send it without opening it.</li>
+        <li>Shortcut: <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>Y</kbd> (<kbd>Option</kbd>+<kbd>Shift</kbd>+<kbd>Y</kbd> on a Mac). Change it under about:addons, Manage Extension Shortcuts.</li>
+      </ul>
+      <p class="muted">The YouTube app has to be open on the TV. Couchcast goes through YouTube's servers, the same way the YouTube phone app does, so it never scans or touches your home network.</p>
+    </section>
+  </main>
+  <script type="module" src="options.js"></script>
+</body>
+</html>
