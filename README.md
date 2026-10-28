@@ -41,6 +41,7 @@ Firefox (Couchcast) --HTTPS--> www.youtube.com/api/lounge <--- YouTube app on th
    uv sync
    uv run couchcast-helper pair      # a PIN appears on the Apple TV
    uv run couchcast-helper install   # registers the helper with Firefox
+   uv run couchcast-helper status    # check that everything is connected
    ```
 
 3. **YouTube-app mode:** on the TV, open YouTube, then **Settings > Link with TV code**, and type

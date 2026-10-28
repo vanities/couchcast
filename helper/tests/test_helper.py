@@ -49,6 +49,36 @@ def test_live_streams_are_flagged_so_no_start_position_is_sent():
     assert stream.pick_stream({"is_live": True, "formats": [HLS]}).is_live is True
 
 
+def test_best_label_is_the_top_h264_rendition_since_the_apple_tv_skips_vp9():
+    formats = [
+        {**HLS, "vcodec": "avc1.4D401F", "height": 720, "fps": 60},
+        {**HLS, "vcodec": "avc1.64002A", "height": 1080, "fps": 60},
+        {**HLS, "vcodec": "vp09.00.51.08", "height": 2160, "fps": 60},
+    ]
+    assert stream.pick_stream({"formats": formats}).best == "1080p60"
+
+
+def test_pyatv_pin_step_works_with_the_installed_srptools():
+    """srptools 2.0 broke this exact call (SRPClientSession's `private` became keyword-only)."""
+    from pyatv.auth.hap_srp import SRPAuthHandler
+
+    handler = SRPAuthHandler()
+    handler.initialize()
+    handler.step1(7465)
+
+
+def test_cli_lists_commands_and_hides_the_firefox_ones():
+    from typer.testing import CliRunner
+
+    from couchcast_helper.__main__ import app
+
+    result = CliRunner().invoke(app, ["--help"])
+    assert result.exit_code == 0
+    for command in ("scan", "pair", "play", "stop", "install", "status"):
+        assert command in result.output
+    assert "host" not in result.output and "player" not in result.output
+
+
 def test_host_wrapper_answers_ping_under_firefoxs_bare_environment(tmp_path):
     """Firefox launches native apps with a minimal env; the wrapper has to find uv by itself."""
     env = {"HOME": str(Path.home()), "PATH": "/usr/bin:/bin", "COUCHCAST_HOME": str(tmp_path)}

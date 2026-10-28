@@ -45,7 +45,7 @@ def handle(message: dict) -> dict:
         resolved = stream.resolve(message["url"])
     except stream.StreamError as error:
         return {"ok": False, "error": str(error)}
-    position = 0 if resolved.is_live else float(message.get("startSeconds") or 0)
+    position = 0.0 if resolved.is_live else float(message.get("startSeconds") or 0)
     pid = player.spawn(resolved.url, position, resolved.title, device)
     outcome = player.wait_for_start(pid)
     log.info("[host] cast outcome=%s pid=%s in %.0fms", outcome.get("state"), pid, (time.perf_counter() - t0) * 1000)

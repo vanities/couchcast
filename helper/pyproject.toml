@@ -8,7 +8,12 @@ dependencies = [
     # Released pyatv (0.18.0) can't start AirPlay URL playback on tvOS 26+ (postlund/pyatv#2906).
     # Pinned to the fix from the #2846 rework until it ships in a release.
     "pyatv @ git+https://github.com/robkochman/pyatv@8144c77c6cecbed4f9ba2adb5a350ad86a8f6604",
+    # srptools 2.0 (2026-10-26) made SRPClientSession's `private` keyword-only, but pyatv still
+    # passes it positionally, which breaks AirPlay pairing at the PIN step.
+    "srptools>=1.0.1,<2",
     "yt-dlp[default]>=2026.10.26",
+    "rich>=13",
+    "typer>=0.12",
 ]
 
 [project.scripts]

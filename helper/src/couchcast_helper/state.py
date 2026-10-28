@@ -14,16 +14,26 @@ LOG = HOME / "helper.log"
 log = logging.getLogger("couchcast")
 
 
-def setup_logging(verbose: bool = False) -> None:
-    """File log always; stderr too (Firefox shows a native host's stderr in the browser console)."""
+def setup_logging(verbose: bool = False, interactive: bool = True) -> None:
+    """Always log to the file. Interactive commands keep the terminal for the UI and only echo
+    logs there with --verbose; the Firefox host and the background player log to plain stderr,
+    which Firefox shows in its browser console."""
     HOME.mkdir(parents=True, exist_ok=True)
-    fmt = logging.Formatter("%(asctime)s %(process)d %(levelname)s %(message)s")
     file_handler = RotatingFileHandler(LOG, maxBytes=1_000_000, backupCount=2)
-    stderr_handler = logging.StreamHandler(sys.stderr)
-    for handler in (file_handler, stderr_handler):
-        handler.setFormatter(fmt)
+    file_handler.setFormatter(logging.Formatter("%(asctime)s %(process)d %(levelname)s %(message)s"))
+    handlers: list[logging.Handler] = [file_handler]
+    if not interactive:
+        stderr_handler = logging.StreamHandler(sys.stderr)
+        stderr_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        handlers.append(stderr_handler)
+    elif verbose:
+        from rich.logging import RichHandler
+
+        from .ui import console
+
+        handlers.append(RichHandler(console=console, show_path=False, markup=False, rich_tracebacks=True))
     root = logging.getLogger()
-    root.handlers[:] = [file_handler, stderr_handler]
+    root.handlers[:] = handlers
     root.setLevel(logging.DEBUG if verbose else logging.INFO)
     if not verbose:
         logging.getLogger("pyatv").setLevel(logging.WARNING)

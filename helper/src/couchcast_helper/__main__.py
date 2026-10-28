@@ -1,79 +1,283 @@
-import argparse
 import asyncio
+import functools
 import json
+import logging
+import shutil
 import sys
+import time
 from pathlib import Path
+from typing import Annotated, Optional
 
-from . import EXTENSION_ID, HOST_NAME, airplay, native, player, state, stream
+import typer
+from rich import box
+from rich.panel import Panel
+from rich.progress import BarColumn, Progress, TextColumn
+from rich.table import Table
+
+from . import EXTENSION_ID, HOST_NAME, __version__, airplay, native, player, state, stream, ui
+
+log = logging.getLogger("couchcast")
 
 NATIVE_HOST_DIRS = {
     "darwin": Path.home() / "Library" / "Application Support" / "Mozilla" / "NativeMessagingHosts",
     "linux": Path.home() / ".mozilla" / "native-messaging-hosts",
 }
+# Commands Firefox and the host start without a terminal: no UI, plain logs on stderr.
+HEADLESS = {"host", "player"}
+
+app = typer.Typer(
+    name="couchcast-helper",
+    help="Plays YouTube on your Apple TV over AirPlay, with no ads. The helper app for the Couchcast Firefox extension.",
+    add_completion=False,
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+    pretty_exceptions_enable=False,
+)
 
 
-def cmd_scan(_args) -> int:
-    async def run():
-        loop = asyncio.get_running_loop()
-        storage = await airplay.open_storage(loop)
-        for conf in await airplay.scan_tvs(loop, storage):
-            service = conf.get_service(airplay.Protocol.AirPlay)
-            paired = "paired" if service and service.credentials else "not paired"
-            print(f"{conf.name:<20} {conf.address!s:<16} {conf.identifier}  airplay: {paired}")
-
-    asyncio.run(run())
-    return 0
+def _print_version(value: bool) -> None:
+    if value:
+        ui.console.print(f"couchcast-helper {__version__}")
+        raise typer.Exit()
 
 
-def cmd_pair(args) -> int:
-    async def run():
-        loop = asyncio.get_running_loop()
-        storage = await airplay.open_storage(loop)
-        tvs = await airplay.scan_tvs(loop, storage)
-        if args.device:
-            tvs = [t for t in tvs if args.device.lower() in (t.name.lower(), str(t.identifier).lower())]
-        if not tvs:
-            raise SystemExit("No Apple TV found on this network.")
-        if len(tvs) > 1:
-            raise SystemExit("Several Apple TVs found; pick one with --device: " + ", ".join(t.name for t in tvs))
-        tv = tvs[0]
-        print(f"Pairing with {tv.name}. A PIN should appear on the TV.")
-
-        async def read_pin() -> int:
-            return int((await loop.run_in_executor(None, input, "PIN shown on the TV: ")).strip())
-
-        await airplay.pair(loop, storage, tv, read_pin)
-        config = state.read_json(state.CONFIG)
-        config["device"] = {"name": tv.name, "identifier": tv.identifier, "address": str(tv.address)}
-        state.write_json(state.CONFIG, config)
-        print(f"Paired. Couchcast will play on {tv.name}.")
-
-    asyncio.run(run())
-    return 0
+@app.callback()
+def _setup(
+    ctx: typer.Context,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Show detailed logs as it works.")] = False,
+    version: Annotated[
+        bool, typer.Option("--version", callback=_print_version, is_eager=True, help="Show the version.")
+    ] = False,
+) -> None:
+    state.setup_logging(verbose=verbose, interactive=ctx.invoked_subcommand not in HEADLESS)
 
 
-def cmd_play(args) -> int:
+def guarded(func):
+    """Ctrl-C becomes a clean stop and other failures a one-line message; the traceback goes to
+    the log either way."""
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except (typer.Exit, typer.Abort):
+            raise
+        except KeyboardInterrupt:
+            log.warning("[cli] %s interrupted", func.__name__)
+            ui.console.print("\n[muted]■ Stopped.[/]")
+            raise typer.Exit(130) from None
+        except Exception as error:
+            log.exception("[cli] %s failed", func.__name__)
+            ui.error(friendly(error), hint=f"Details are in {state.LOG}")
+            raise typer.Exit(1) from None
+
+    return wrapper
+
+
+def firefox_manifest() -> Path | None:
+    directory = NATIVE_HOST_DIRS.get(sys.platform)
+    return directory / f"{HOST_NAME}.json" if directory else None
+
+
+def describe_model(conf) -> str:
+    info = conf.device_info
+    return f"{info.model_str}, tvOS {info.version}" if info.version else info.model_str
+
+
+def require_device() -> dict:
     device = state.read_json(state.CONFIG).get("device")
     if not device:
-        raise SystemExit("Pair first: couchcast-helper pair")
-    resolved = stream.resolve(args.url)
-    print(f"{resolved.kind} stream for {resolved.title!r}; sending to {device['name']}")
-    if args.background:
-        outcome = player.wait_for_start(player.spawn(resolved.url, args.at, resolved.title, device))
-        print(json.dumps(outcome))
-        return 0 if outcome.get("state") != "error" else 1
-    return player.run(resolved.url, args.at, resolved.title or "", device)
+        ui.error("No Apple TV paired yet.", hint="Run: couchcast-helper pair")
+        raise typer.Exit(1)
+    return device
 
 
-def cmd_player(args) -> int:
-    device = state.read_json(state.CONFIG)["device"]
-    return player.run(args.url, args.position, args.title, device)
+@app.command()
+@guarded
+def scan() -> None:
+    """List the Apple TVs on your network."""
+
+    async def run():
+        loop = asyncio.get_running_loop()
+        return await airplay.scan_tvs(loop, await airplay.open_storage(loop))
+
+    with ui.step("Looking for Apple TVs on your network…"):
+        tvs = asyncio.run(run())
+    if not tvs:
+        ui.warn("No Apple TVs found.", hint="Is this computer on the same network as the TV?")
+        raise typer.Exit(1)
+    default = (state.read_json(state.CONFIG).get("device") or {}).get("identifier")
+    table = Table(box=box.SIMPLE_HEAD, header_style="accent", pad_edge=False)
+    for column in ("Name", "Model", "Address", "AirPlay"):
+        table.add_column(column)
+    for tv in tvs:
+        status = "[ok]paired[/]" if airplay.is_paired(tv) else "[muted]not paired[/]"
+        if tv.identifier == default:
+            status += " [accent]· default[/]"
+        table.add_row(f"[key]{tv.name}[/]", describe_model(tv), str(tv.address), status)
+    ui.console.print(table)
 
 
-def cmd_install(_args) -> int:
-    directory = NATIVE_HOST_DIRS.get(sys.platform)
-    if directory is None:
-        raise SystemExit(f"Don't know where Firefox looks for native apps on {sys.platform}")
+@app.command()
+@guarded
+def pair(
+    device: Annotated[Optional[str], typer.Option("--device", "-d", help="Apple TV name, if you have several.")] = None,
+) -> None:
+    """Pair with an Apple TV. It shows a PIN that you type here."""
+    asyncio.run(_pair(device))
+
+
+async def _pair(name: str | None) -> None:
+    loop = asyncio.get_running_loop()
+    storage = await airplay.open_storage(loop)
+    with ui.step("Looking for Apple TVs on your network…"):
+        tvs = await airplay.scan_tvs(loop, storage)
+    if name:
+        tvs = [t for t in tvs if name.lower() in (t.name.lower(), str(t.identifier).lower())]
+    if not tvs:
+        ui.error(f"No Apple TV{f' named {name!r}' if name else ''} found.", hint="Is this computer on the same network as the TV?")
+        raise typer.Exit(1)
+    tv = tvs[0] if len(tvs) == 1 else tvs[ui.ask_choice("Which Apple TV?", [f"{t.name} [muted]{describe_model(t)}[/]" for t in tvs])]
+
+    ui.console.print(f"Pairing with [key]{tv.name}[/] [muted]{describe_model(tv)} · {tv.address}[/]")
+    with ui.step(f"Asking {tv.name} for a PIN…"):
+        pairing = await airplay.begin_pairing(loop, storage, tv)
+    try:
+        if pairing.device_provides_pin:
+            # Prompt on the loop's thread on purpose: a prompt in a worker thread keeps the
+            # process alive after Ctrl-C until someone presses Enter.
+            pin = ui.ask_pin()
+        else:
+            pin = 1111
+            ui.console.print("Type [key]1111[/] on the TV.")
+    except BaseException:
+        await pairing.close()
+        raise
+    with ui.step(f"Checking the PIN with {tv.name}…"):
+        await airplay.finish_pairing(storage, pairing, pin)
+
+    config = state.read_json(state.CONFIG)
+    config["device"] = {"name": tv.name, "identifier": tv.identifier, "address": str(tv.address)}
+    state.write_json(state.CONFIG, config)
+
+    target = firefox_manifest()
+    steps = []
+    if not (target and target.exists()):
+        steps.append("[key]couchcast-helper install[/]   [muted]connect it to Firefox[/]")
+    steps.append("[key]couchcast-helper play[/] [muted]<youtube url>   try it from here[/]")
+    ui.console.print(
+        Panel.fit(
+            f"[ok]✓ Paired with {tv.name}[/]\n\nNext:\n  " + "\n  ".join(steps),
+            border_style="green",
+            title="[accent]couchcast[/]",
+            title_align="left",
+        )
+    )
+
+
+@app.command()
+@guarded
+def play(
+    url: Annotated[str, typer.Argument(help="A YouTube video URL.")],
+    at: Annotated[float, typer.Option("--at", help="Start position, in seconds.")] = 0,
+    background: Annotated[
+        bool, typer.Option("--background", help="Hand off to a background player, the way the extension does.")
+    ] = False,
+) -> None:
+    """Play a YouTube video on your Apple TV, with no ads."""
+    device = require_device()
+    with ui.step("Finding the video stream…"):
+        resolved = stream.resolve(url)
+    details = [
+        "live" if resolved.is_live else None,
+        f"up to {resolved.best}" if resolved.best else None,
+        ui.clock(resolved.duration) if resolved.duration and not resolved.is_live else None,
+    ]
+    details = " · ".join(d for d in details if d)
+    ui.console.print(f"[accent]▶[/] [key]{resolved.title or url}[/]" + (f"  [muted]{details}[/]" if details else ""))
+    position = 0 if resolved.is_live else at
+
+    if background:
+        with ui.step(f"Starting playback on {device['name']}…"):
+            outcome = player.wait_for_start(player.spawn(resolved.url, position, resolved.title, device))
+        if outcome.get("state") == "error":
+            ui.error(f"AirPlay failed: {outcome.get('error')}", hint=f"Details are in {state.LOG}")
+            raise typer.Exit(1)
+        ui.ok(f"Playing on [key]{device['name']}[/] in the background. [muted]Stop it with: couchcast-helper stop[/]")
+        return
+    asyncio.run(_play_here(device, resolved, position))
+
+
+async def _play_here(device: dict, resolved: stream.Stream, position: float) -> None:
+    loop = asyncio.get_running_loop()
+    storage = await airplay.open_storage(loop)
+    with ui.step(f"Connecting to {device['name']}…"):
+        conf = await airplay.find_tv(loop, storage, device)
+
+    progress = Progress(
+        TextColumn("{task.description}"),
+        BarColumn(bar_width=None, complete_style=ui.ACCENT, finished_style="green", pulse_style=ui.ACCENT),
+        TextColumn("[bold]{task.fields[clock]}"),
+        TextColumn("[muted]Ctrl-C stops[/]"),
+        console=ui.console,
+        expand=True,
+    )
+    started = time.monotonic()
+    heard_from_tv = False
+    with progress:
+        task = progress.add_task(f"[muted]Starting on {device['name']}…[/]", total=None, clock="")
+
+        def on_started() -> None:
+            progress.update(task, description=f"[accent]▶[/] Playing on [key]{device['name']}[/]")
+
+        def on_status(pos: float | None, total: float | None, state_name: str | None) -> None:
+            nonlocal heard_from_tv
+            heard_from_tv = True
+            total = total or resolved.duration
+            verb = "Paused on" if state_name == "Paused" else "Playing on"
+            icon = "⏸" if state_name == "Paused" else "▶"
+            progress.update(
+                task,
+                description=f"[accent]{icon}[/] {verb} [key]{device['name']}[/]",
+                total=total,
+                completed=pos or 0,
+                clock=f"{ui.clock(pos)} / {ui.clock(total)}",
+            )
+
+        async def tick() -> None:
+            # Until (or unless) the TV reports its position, show honest elapsed time instead.
+            while True:
+                await asyncio.sleep(1)
+                if not heard_from_tv:
+                    progress.update(task, clock=f"{ui.clock(time.monotonic() - started)} elapsed")
+
+        ticker = asyncio.ensure_future(tick())
+        try:
+            await airplay.play(loop, storage, conf, resolved.url, position, on_started, on_status)
+        finally:
+            ticker.cancel()
+    ui.ok("Finished.")
+
+
+@app.command()
+@guarded
+def stop() -> None:
+    """Stop a background cast (from the extension or play --background)."""
+    now = player.current()
+    if player.stop():
+        ui.ok(f"Stopped [key]{now.get('title') or 'playback'}[/] on {now.get('device')}.")
+    else:
+        ui.console.print("[muted]Nothing is playing.[/]")
+
+
+@app.command()
+@guarded
+def install() -> None:
+    """Connect the helper to Firefox (registers it as a native app)."""
+    target = firefox_manifest()
+    if target is None:
+        ui.error(f"Don't know where Firefox looks for native apps on {sys.platform}.")
+        raise typer.Exit(1)
     wrapper = Path(__file__).resolve().parents[2] / "bin" / "couchcast-host"
     manifest = {
         "name": HOST_NAME,
@@ -82,42 +286,81 @@ def cmd_install(_args) -> int:
         "type": "stdio",
         "allowed_extensions": [EXTENSION_ID],
     }
-    directory.mkdir(parents=True, exist_ok=True)
-    target = directory / f"{HOST_NAME}.json"
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(manifest, indent=2))
-    print(f"Registered {target} -> {wrapper}")
-    return 0
+    log.info("[install] registered %s -> %s", target, wrapper)
+    ui.ok("Connected to Firefox.")
+    ui.console.print(f"  [muted]{target}[/]")
+    ui.console.print("  Next: in Couchcast's settings in Firefox, choose [key]No ads, straight to Apple TV[/].")
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(prog="couchcast-helper")
-    parser.add_argument("-v", "--verbose", action="store_true")
-    sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("scan", help="list Apple TVs on the network").set_defaults(func=cmd_scan)
-    pair = sub.add_parser("pair", help="pair with an Apple TV (PIN shown on the TV)")
-    pair.add_argument("--device", help="name or identifier, when there are several")
-    pair.set_defaults(func=cmd_pair)
-    play = sub.add_parser("play", help="play a YouTube URL on the paired Apple TV")
-    play.add_argument("url")
-    play.add_argument("--at", type=float, default=0, help="start position in seconds")
-    play.add_argument("--background", action="store_true", help="hand off to a background player like the extension does")
-    play.set_defaults(func=cmd_play)
-    sub.add_parser("stop", help="stop the current cast").set_defaults(func=lambda _a: print(player.stop()) or 0)
-    sub.add_parser("install", help="register with Firefox as a native app").set_defaults(func=cmd_install)
-    host = sub.add_parser("host", help=argparse.SUPPRESS)
-    # Firefox appends the manifest path and the calling extension's id.
-    host.add_argument("firefox_args", nargs="*")
-    host.set_defaults(func=lambda _a: native.serve())
-    internal = sub.add_parser("player", help=argparse.SUPPRESS)
-    internal.add_argument("--url", required=True)
-    internal.add_argument("--position", type=float, default=0)
-    internal.add_argument("--title", default="")
-    internal.set_defaults(func=cmd_player)
+@app.command()
+@guarded
+def status() -> None:
+    """Show what's set up and what's playing."""
+    import yt_dlp
 
-    args = parser.parse_args()
-    state.setup_logging(args.verbose)
-    return args.func(args)
+    device = state.read_json(state.CONFIG).get("device")
+    target = firefox_manifest()
+    now = player.current()
+    playing = now.get("alive") and now.get("state") in {"starting", "playing"}
 
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style="muted")
+    grid.add_column()
+    grid.add_row(
+        "Apple TV",
+        f"[key]{device['name']}[/] [muted]{device.get('address', '')}[/]"
+        if device
+        else "[warn]not paired[/]  [muted]run: couchcast-helper pair[/]",
+    )
+    grid.add_row(
+        "Firefox",
+        "[ok]connected[/]" if target and target.exists() else "[warn]not connected[/]  [muted]run: couchcast-helper install[/]",
+    )
+    grid.add_row(
+        "yt-dlp",
+        f"{yt_dlp.version.__version__}  "
+        + ("[ok]deno found[/]" if shutil.which("deno") else "[warn]deno missing[/] [muted]yt-dlp needs it for YouTube[/]"),
+    )
+    grid.add_row("Playing", f"[key]{now.get('title') or 'a video'}[/] on {now.get('device')}" if playing else "[muted]nothing[/]")
+    grid.add_row("Log", str(state.LOG))
+    ui.console.print(
+        Panel(grid, title=f"[accent]couchcast helper[/] [muted]{__version__}[/]", title_align="left", border_style=ui.ACCENT, expand=False)
+    )
+
+
+@app.command(hidden=True, context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+def host() -> None:
+    """Firefox native messaging host. Firefox appends the manifest path and the caller's add-on id."""
+    raise typer.Exit(native.serve())
+
+
+@app.command("player", hidden=True)
+def player_process(
+    url: Annotated[str, typer.Option()],
+    position: Annotated[float, typer.Option()] = 0,
+    title: Annotated[str, typer.Option()] = "",
+) -> None:
+    raise typer.Exit(player.run(url, position, title, state.read_json(state.CONFIG)["device"]))
+
+
+def friendly(error: Exception) -> str:
+    from pyatv import exceptions as atv
+
+    if isinstance(error, atv.PairingError):
+        return f"Pairing failed: {error}"
+    if isinstance(error, atv.AuthenticationError):
+        return "The Apple TV turned down Couchcast's credentials. Pair again with: couchcast-helper pair"
+    if isinstance(error, (TimeoutError, asyncio.TimeoutError)):
+        return "The Apple TV took too long to answer."
+    if isinstance(error, (LookupError, RuntimeError, stream.StreamError)):
+        return str(error)
+    return f"{type(error).__name__}: {error}"
+
+
+def main() -> None:
+    app()
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

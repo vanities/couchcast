@@ -15,6 +15,15 @@ class Stream:
     kind: str  # "hls" or "progressive"
     title: str | None
     is_live: bool
+    duration: float | None = None
+    best: str | None = None  # e.g. "1080p60", the best H.264 rendition the Apple TV can pick
+
+
+def _label(fmt: dict) -> str | None:
+    height, fps = fmt.get("height"), fmt.get("fps")
+    if not height:
+        return None
+    return f"{height}p{int(fps)}" if fps and fps > 30 else f"{height}p"
 
 
 def pick_stream(info: dict) -> Stream | None:
@@ -22,10 +31,12 @@ def pick_stream(info: dict) -> Stream | None:
     unlike the direct-file URLs its IP lock isn't enforced, so the TV can fetch what the Mac
     resolved. A muxed MP4 (360p) is the fallback."""
     formats = info.get("formats") or []
-    title, is_live = info.get("title"), bool(info.get("is_live"))
-    for fmt in formats:
-        if str(fmt.get("protocol", "")).startswith("m3u8") and fmt.get("manifest_url"):
-            return Stream(fmt["manifest_url"], "hls", title, is_live)
+    common = {"title": info.get("title"), "is_live": bool(info.get("is_live")), "duration": info.get("duration")}
+    hls = [f for f in formats if str(f.get("protocol", "")).startswith("m3u8") and f.get("manifest_url")]
+    if hls:
+        h264 = [f for f in hls if str(f.get("vcodec", "")).startswith("avc1")]
+        top = max(h264, key=lambda f: (f.get("height") or 0, f.get("fps") or 0), default=None)
+        return Stream(hls[0]["manifest_url"], "hls", best=top and _label(top), **common)
     muxed = [
         f
         for f in formats
@@ -35,8 +46,8 @@ def pick_stream(info: dict) -> Stream | None:
         and str(f.get("protocol", "")).startswith("http")
     ]
     if muxed:
-        best = max(muxed, key=lambda f: f.get("height") or 0)
-        return Stream(best["url"], "progressive", title, is_live)
+        top = max(muxed, key=lambda f: f.get("height") or 0)
+        return Stream(top["url"], "progressive", best=_label(top), **common)
     return None
 
 
