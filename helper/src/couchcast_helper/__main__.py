@@ -3,6 +3,7 @@ import functools
 import json
 import logging
 import shutil
+import signal
 import sys
 import time
 from pathlib import Path
@@ -58,9 +59,16 @@ def guarded(func):
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
+        t0 = time.perf_counter()
+        log.info("[cli] %s start %s", func.__name__, kwargs or "")
         try:
-            return func(*args, **kwargs)
-        except (typer.Exit, typer.Abort):
+            result = func(*args, **kwargs)
+            log.info("[cli] %s done in %.0fms", func.__name__, (time.perf_counter() - t0) * 1000)
+            return result
+        except typer.Exit as done:
+            log.info("[cli] %s exit=%s in %.0fms", func.__name__, done.exit_code, (time.perf_counter() - t0) * 1000)
+            raise
+        except typer.Abort:
             raise
         except KeyboardInterrupt:
             log.warning("[cli] %s interrupted", func.__name__)
@@ -180,6 +188,7 @@ async def _pair(name: str | None) -> None:
 def play(
     url: Annotated[str, typer.Argument(help="A YouTube video URL.")],
     at: Annotated[float, typer.Option("--at", help="Start position, in seconds.")] = 0,
+    rate: Annotated[float, typer.Option("--rate", help="Playback speed, like 1.5.")] = 1.0,
     background: Annotated[
         bool, typer.Option("--background", help="Hand off to a background player, the way the extension does.")
     ] = False,
@@ -199,17 +208,29 @@ def play(
 
     if background:
         with ui.step(f"Starting playback on {device['name']}…"):
-            outcome = player.wait_for_start(player.spawn(resolved.url, position, resolved.title, device))
+            outcome = player.wait_for_start(player.spawn(resolved.url, position, resolved.title, device, rate=rate))
         if outcome.get("state") == "error":
             ui.error(f"AirPlay failed: {outcome.get('error')}", hint=f"Details are in {state.LOG}")
             raise typer.Exit(1)
         ui.ok(f"Playing on [key]{device['name']}[/] in the background. [muted]Stop it with: couchcast-helper stop[/]")
         return
-    asyncio.run(_play_here(device, resolved, position))
+    asyncio.run(_play_here(device, resolved, position, rate))
 
 
-async def _play_here(device: dict, resolved: stream.Stream, position: float) -> None:
+async def _play_here(device: dict, resolved: stream.Stream, position: float, rate: float) -> None:
     loop = asyncio.get_running_loop()
+    # Register like the background player, so the next cast (from Firefox or here) takes over
+    # this one instead of two AirPlay sessions fighting over the TV.
+    session = player.Session(resolved.title, device, position, rate=rate)
+    took_over: list[bool] = []
+
+    def on_sigterm() -> None:
+        took_over.append(True)
+        log.info("[cli] play got SIGTERM: another cast is taking over")
+        main_task.cancel()
+
+    main_task = asyncio.current_task()
+    loop.add_signal_handler(signal.SIGTERM, on_sigterm)
     storage = await airplay.open_storage(loop)
     with ui.step(f"Connecting to {device['name']}…"):
         conf = await airplay.find_tv(loop, storage, device)
@@ -228,11 +249,13 @@ async def _play_here(device: dict, resolved: stream.Stream, position: float) -> 
         task = progress.add_task(f"[muted]Starting on {device['name']}…[/]", total=None, clock="")
 
         def on_started() -> None:
+            session.mark("playing")
             progress.update(task, description=f"[accent]▶[/] Playing on [key]{device['name']}[/]")
 
         def on_status(pos: float | None, total: float | None, state_name: str | None) -> None:
             nonlocal heard_from_tv
             heard_from_tv = True
+            session.on_status(pos, total, state_name)
             total = total or resolved.duration
             verb = "Paused on" if state_name == "Paused" else "Playing on"
             icon = "⏸" if state_name == "Paused" else "▶"
@@ -253,9 +276,17 @@ async def _play_here(device: dict, resolved: stream.Stream, position: float) -> 
 
         ticker = asyncio.ensure_future(tick())
         try:
-            await airplay.play(loop, storage, conf, resolved.url, position, on_started, on_status)
+            await airplay.play(loop, storage, conf, resolved.url, position, on_started, on_status, rate=rate)
+        except asyncio.CancelledError:
+            session.mark("stopped")
+            if not took_over:
+                raise
         finally:
             ticker.cancel()
+    if took_over:
+        ui.console.print("[muted]■ Another cast took over the TV.[/]")
+        return
+    session.mark("ended")
     ui.ok("Finished.")
 
 
@@ -341,8 +372,11 @@ def player_process(
     url: Annotated[str, typer.Option()],
     position: Annotated[float, typer.Option()] = 0,
     title: Annotated[str, typer.Option()] = "",
+    video_id: Annotated[Optional[str], typer.Option("--video-id")] = None,
+    rate: Annotated[float, typer.Option()] = 1.0,
 ) -> None:
-    raise typer.Exit(player.run(url, position, title, state.read_json(state.CONFIG)["device"]))
+    device = state.read_json(state.CONFIG)["device"]
+    raise typer.Exit(player.run(url, position, title, device, video_id=video_id, rate=rate))
 
 
 def friendly(error: Exception) -> str:

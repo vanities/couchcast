@@ -154,6 +154,20 @@ describe('castVideo', () => {
     expect(result.tv).toEqual({ name: 'Bedroom', brand: 'Apple', model: 'AppleTV11,1' });
   });
 
+  test('carries the browser playback speed over with setPlaybackSpeed', async () => {
+    const calls = fakeYouTube();
+    await castVideo(SCREEN, { videoId: 'aqz-KE-bpKQ', startSeconds: 10, rate: 1.5 }, OPTS);
+    const speed = calls.find((c) => c.body.req0__sc === 'setPlaybackSpeed');
+    expect(speed.body).toMatchObject({ req0_playbackSpeed: '1.5', ofs: '2' });
+    expect(speed.query.RID).toBe('3');
+  });
+
+  test('sends no speed command at normal speed', async () => {
+    const calls = fakeYouTube();
+    await castVideo(SCREEN, { videoId: 'aqz-KE-bpKQ', startSeconds: 10, rate: 1 }, OPTS);
+    expect(calls.some((c) => c.body.req0__sc === 'setPlaybackSpeed')).toBe(false);
+  });
+
   test('omits currentTime and listId when there is none (live streams, plain videos)', async () => {
     const calls = fakeYouTube();
     await castVideo(SCREEN, { videoId: 'aqz-KE-bpKQ', listId: null, startSeconds: null }, OPTS);

@@ -69,8 +69,11 @@ async function onClick(event) {
   if (button.classList.contains('busy')) return;
   button.classList.add('busy');
   showTip(button, 'Sending to TV…');
+  const t0 = performance.now();
+  console.info('[couchcast] cast clicked', location.href);
   try {
     const reply = await browser.runtime.sendMessage({ type: 'cast-from-player' });
+    console.info('[couchcast] cast reply', reply, `${Math.round(performance.now() - t0)}ms`);
     if (reply?.ok) showTip(button, `Playing on ${reply.tvName}`, 'ok', 3500);
     else showTip(button, reply?.message ?? 'Cast failed.', 'error', 6000);
   } catch (error) {
@@ -108,6 +111,33 @@ function hideTip(button) {
   // Leave result messages up for their full time; only plain hover labels follow the mouse.
   if (tip && !tip.dataset.kind && !button.classList.contains('busy')) tip.classList.remove('visible');
 }
+
+// Coming back to a tab whose video is playing on the TV (no-ads mode): jump the paused local
+// player to where the TV is, so pressing play here continues from the right spot.
+let lastCatchUp = 0;
+async function catchUpWithTv() {
+  if (window.top !== window || document.visibilityState !== 'visible') return;
+  // visibilitychange and focus usually fire together.
+  if (performance.now() - lastCatchUp < 2000) return;
+  lastCatchUp = performance.now();
+  const videoId = new URL(location.href).searchParams.get('v');
+  const video = document.querySelector('#movie_player video');
+  if (!videoId || !video || !video.paused) return;
+  try {
+    const status = await browser.runtime.sendMessage({ type: 'tv-position', videoId });
+    if (!status?.active || status.position == null) return;
+    const behind = status.position - video.currentTime;
+    console.info('[couchcast] tv position', status.position.toFixed(1), 'local', video.currentTime.toFixed(1));
+    if (Math.abs(behind) < 3) return;
+    video.currentTime = status.position;
+    const button = document.querySelector(`#movie_player .${BUTTON_CLASS}`);
+    if (button) showTip(button, `Caught up with ${status.tvName}`, 'ok', 3000);
+  } catch (error) {
+    console.warn('[couchcast] catch-up failed:', error.message);
+  }
+}
+document.addEventListener('visibilitychange', catchUpWithTv);
+window.addEventListener('focus', catchUpWithTv);
 
 let scheduled = false;
 new MutationObserver(() => {

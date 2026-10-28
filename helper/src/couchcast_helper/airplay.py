@@ -6,6 +6,7 @@ from collections.abc import Callable
 import pyatv
 from pyatv.const import FeatureName, FeatureState, OperatingSystem, Protocol
 from pyatv.interface import PairingHandler, PushListener
+from pyatv.protocols.raop.protocols import airplayv2
 from pyatv.storage.file_storage import FileStorage
 
 from . import state
@@ -14,6 +15,25 @@ log = logging.getLogger("couchcast")
 
 # (position, total_time, device_state) from the TV, any of which can be None.
 StatusCallback = Callable[[float | None, float | None, str | None], None]
+
+
+# pyatv's play_url always starts AirPlay 2 video at rate 1.0 and keeps its /command channel
+# private. Wrapping the one method that sends those commands lets playback start at the
+# browser's speed. Tied to the pinned pyatv commit; drop it once play_url takes a rate.
+_ORIGINAL_SEND = airplayv2.AirPlayV2._send_url_command
+_START_RATE = {"value": 1.0}
+
+
+async def _send_at_start_rate(self, command):
+    rate = _START_RATE["value"]
+    if command.get("type") == "setRate" and command.get("rate") == 1.0 and rate != 1.0:
+        log.info("[airplay] starting playback at %sx", rate)
+        command = {**command, "rate": rate}
+    log.debug("[airplay] /command %s", command.get("type"))
+    return await _ORIGINAL_SEND(self, command)
+
+
+airplayv2.AirPlayV2._send_url_command = _send_at_start_rate
 
 
 def ms(t0: float) -> str:
@@ -101,17 +121,22 @@ async def play(
     position: float,
     on_started: Callable[[], None],
     on_status: StatusCallback | None = None,
+    rate: float = 1.0,
 ) -> None:
     """Blocks until playback ends: AirPlay video stops if the sender hangs up."""
     t0 = time.perf_counter()
+    _START_RATE["value"] = rate
     atv = await pyatv.connect(conf, loop, protocol=Protocol.AirPlay, storage=storage)
     log.info("[airplay] connected to %s in %s", conf.name, ms(t0))
     try:
-        if on_status and atv.features.in_state(FeatureState.Available, FeatureName.PushUpdates):
-            atv.push_updater.listener = _StatusListener(on_status)
-            atv.push_updater.start()
-        else:
-            log.info("[airplay] %s doesn't push playback status over this connection", conf.name)
+        if on_status:
+            if atv.features.in_state(FeatureState.Available, FeatureName.PushUpdates):
+                atv.push_updater.listener = _StatusListener(on_status)
+                atv.push_updater.start()
+                log.info("[airplay] listening for playback status from %s", conf.name)
+            else:
+                log.info("[airplay] %s doesn't push playback status over this connection", conf.name)
+        log.info("[airplay] play_url at=%.0fs rate=%sx", position, rate)
         task = asyncio.ensure_future(atv.stream.play_url(url, position=position))
         # play_url never returns while the video plays, so "still running after a few seconds
         # without an error" is the only start signal it gives.

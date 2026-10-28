@@ -14,11 +14,18 @@ LOG = HOME / "helper.log"
 log = logging.getLogger("couchcast")
 
 
+def debug_enabled() -> bool:
+    """COUCHCAST_DEBUG=1, or "debug": true in config.json. The config switch exists because
+    Firefox starts the helper with its own environment, where an env var can't be set."""
+    return os.environ.get("COUCHCAST_DEBUG") == "1" or bool(read_json(CONFIG).get("debug"))
+
+
 def setup_logging(verbose: bool = False, interactive: bool = True) -> None:
     """Always log to the file. Interactive commands keep the terminal for the UI and only echo
     logs there with --verbose; the Firefox host and the background player log to plain stderr,
     which Firefox shows in its browser console."""
     HOME.mkdir(parents=True, exist_ok=True)
+    debug = debug_enabled()
     file_handler = RotatingFileHandler(LOG, maxBytes=1_000_000, backupCount=2)
     file_handler.setFormatter(logging.Formatter("%(asctime)s %(process)d %(levelname)s %(message)s"))
     lock_down(LOG)
@@ -35,9 +42,12 @@ def setup_logging(verbose: bool = False, interactive: bool = True) -> None:
         handlers.append(RichHandler(console=console, show_path=False, markup=False, rich_tracebacks=True))
     root = logging.getLogger()
     root.handlers[:] = handlers
-    root.setLevel(logging.DEBUG if verbose else logging.INFO)
-    if not verbose:
+    root.setLevel(logging.DEBUG if verbose or debug else logging.INFO)
+    if not (verbose or debug):
         logging.getLogger("pyatv").setLevel(logging.WARNING)
+    # mDNS chatter drowns everything else even in debug mode.
+    logging.getLogger("zeroconf").setLevel(logging.INFO)
+    log.debug("[state] logging ready verbose=%s debug=%s interactive=%s argv=%s", verbose, debug, interactive, sys.argv[1:3])
 
 
 def lock_down(path: Path) -> None:

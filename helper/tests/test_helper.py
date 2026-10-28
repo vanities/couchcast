@@ -77,6 +77,79 @@ def test_credential_files_are_locked_to_the_owner(tmp_path):
     assert creds.stat().st_mode & 0o777 == 0o600
 
 
+def test_start_rate_rewrites_only_the_initial_set_rate(monkeypatch):
+    import asyncio
+
+    from couchcast_helper import airplay
+
+    sent = []
+
+    async def fake_send(_self, command):
+        sent.append(command)
+
+    monkeypatch.setattr(airplay, "_ORIGINAL_SEND", fake_send)
+    monkeypatch.setitem(airplay._START_RATE, "value", 1.5)
+    for command in ({"type": "insertPlayQueueItem"}, {"type": "setRate", "rate": 1.0}):
+        asyncio.run(airplay._send_at_start_rate(None, command))
+    assert sent == [{"type": "insertPlayQueueItem"}, {"type": "setRate", "rate": 1.5}]
+
+
+@pytest.fixture
+def couchcast_home(tmp_path, monkeypatch):
+    from couchcast_helper import state
+
+    monkeypatch.setattr(state, "HOME", tmp_path)
+    monkeypatch.setattr(state, "PLAYER", tmp_path / "player.json")
+    monkeypatch.setattr(state, "CONFIG", tmp_path / "config.json")
+    return state
+
+
+def test_live_position_runs_on_at_the_cast_speed(couchcast_home):
+    import os
+    import time
+
+    from couchcast_helper import player
+
+    couchcast_home.write_json(
+        couchcast_home.PLAYER,
+        {"pid": os.getpid(), "state": "playing", "position": 100.0, "positionAt": time.time() - 10, "rate": 1.5},
+    )
+    assert player.current()["livePosition"] == pytest.approx(115, abs=0.5)
+
+
+def test_a_finishing_session_does_not_overwrite_the_cast_that_replaced_it(couchcast_home):
+    import os
+
+    from couchcast_helper import player
+
+    session = player.Session("old", {"name": "Bedroom"}, 0)
+    newer = {"pid": os.getpid() + 1, "state": "playing", "title": "new"}
+    couchcast_home.write_json(couchcast_home.PLAYER, newer)
+    session.mark("stopped")
+    assert couchcast_home.read_json(couchcast_home.PLAYER)["title"] == "new"
+
+
+def test_status_reports_the_tv_position_for_tab_catch_up(couchcast_home):
+    import os
+    import time
+
+    couchcast_home.write_json(
+        couchcast_home.PLAYER,
+        {"pid": os.getpid(), "state": "paused", "videoId": "aqz-KE-bpKQ", "position": 42.0, "positionAt": time.time(), "device": "Bedroom"},
+    )
+    reply = native.handle({"type": "status"})
+    assert reply == {
+        "ok": True,
+        "active": True,
+        "state": "paused",
+        "videoId": "aqz-KE-bpKQ",
+        "position": 42.0,
+        "duration": None,
+        "rate": None,
+        "tvName": "Bedroom",
+    }
+
+
 def test_cli_lists_commands_and_hides_the_firefox_ones():
     from typer.testing import CliRunner
 

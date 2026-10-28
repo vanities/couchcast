@@ -351,7 +351,10 @@ export async function castVideo(
     },
     { signal },
   );
-  log.info(`cast sent tv="${current.name}" video=${video.videoId} in ${since(t0)}`);
+  if (video.rate && video.rate !== 1) {
+    await sendCommand(session, 'setPlaybackSpeed', { playbackSpeed: video.rate }, { signal });
+  }
+  log.info(`cast sent tv="${current.name}" video=${video.videoId} rate=${video.rate ?? 1}x in ${since(t0)}`);
 
   if (!keepSession) {
     await disconnect(session, { signal }).catch((error) => log.warn(`disconnect failed: ${error.message}`));

@@ -50,13 +50,33 @@ browser.contextMenus?.onClicked.addListener((info, tab) => {
 });
 
 browser.runtime.onMessage.addListener((message, sender) => {
+  log.debug(`message type=${message?.type} tab=${sender.tab?.id} frame=${sender.frameId}`);
   if (message?.type === 'cast-from-player') {
     // The in-player button shows the outcome itself, so skip the system notification.
     return castFromTab(sender.tab, { frameId: sender.frameId, fromUrl: parseYouTubeUrl(sender.url), notify: false });
   }
   if (message?.type === 'player-label') return playerLabel();
+  if (message?.type === 'tv-position') return tvPosition(message.videoId);
   return undefined;
 });
+
+/** Where the TV is in this video, so a tab you come back to can catch up. No-ads mode only:
+ * the helper's player records the TV's position from its live status updates. */
+async function tvPosition(videoId) {
+  if ((await loadMode()) !== 'direct' || !(await hasHelperAccess())) return { active: false };
+  const t0 = performance.now();
+  try {
+    const status = await browser.runtime.sendNativeMessage(HELPER, { type: 'status' });
+    const match = status?.active && status.videoId === videoId;
+    log.info(
+      `tv position video=${videoId} active=${status?.active} tvVideo=${status?.videoId ?? '-'} state=${status?.state ?? '-'} at=${status?.position?.toFixed?.(1) ?? '-'} in ${since(t0)}`,
+    );
+    return match ? status : { active: false };
+  } catch (error) {
+    log.warn(`tv position lookup failed in ${since(t0)}: ${error.message}`);
+    return { active: false };
+  }
+}
 
 async function playerLabel() {
   if ((await loadMode()) === 'direct') return { label: 'Play on TV, no ads' };
@@ -65,6 +85,7 @@ async function playerLabel() {
 }
 
 async function castFromTab(tab, { frameId = 0, fromUrl = parseYouTubeUrl(tab.url), notify = true } = {}) {
+  log.info(`cast requested tab=${tab?.id} frame=${frameId} url=${tab?.url}`);
   const player = await readPlayer(tab.id, frameId);
   const videoId = fromUrl?.videoId ?? player?.videoId;
   if (!videoId) return fail(tab, 'Open a YouTube video first, then cast.', notify);
@@ -76,7 +97,11 @@ async function castFromTab(tab, { frameId = 0, fromUrl = parseYouTubeUrl(tab.url
     videoId,
     listId: fromUrl?.listId ?? live?.listId ?? null,
     startSeconds: live?.isLive ? null : (live?.time ?? fromUrl?.startSeconds ?? 0),
+    rate: live?.rate ?? 1,
   };
+  log.info(
+    `cast video=${videoId} list=${video.listId ?? '-'} at=${video.startSeconds ?? 'live'} rate=${video.rate}x from=${live ? 'player' : 'url'}`,
+  );
   const result = await castVideoTo(video, tab, { source: frameId ? 'embed' : 'tab', notify });
   if (result.ok) await pausePage(tab.id, frameId);
   return result;
@@ -128,7 +153,9 @@ async function castDirect(video, tab, notify) {
     reply = await browser.runtime.sendNativeMessage(HELPER, {
       type: 'cast',
       url: `https://www.youtube.com/watch?v=${video.videoId}`,
+      videoId: video.videoId,
       startSeconds: video.startSeconds,
+      rate: video.rate,
     });
   } catch (error) {
     log.error(`helper unreachable in ${since(t0)}: ${error.message}`);
@@ -155,6 +182,7 @@ async function readPlayer(tabId, frameId) {
           listId: data?.list || null,
           isLive: Boolean(data?.isLive),
           time: player?.getCurrentTime?.() ?? element?.currentTime ?? null,
+          rate: player?.getPlaybackRate?.() ?? element?.playbackRate ?? 1,
         };
       },
     });
@@ -172,6 +200,7 @@ async function pausePage(tabId, frameId) {
       target: { tabId, frameIds: [frameId] },
       func: () => document.querySelectorAll('video').forEach((video) => video.pause()),
     });
+    log.debug(`paused the page's video tab=${tabId} frame=${frameId}`);
   } catch (error) {
     log.warn(`pause failed tab=${tabId}: ${error.message}`);
   }

@@ -144,6 +144,7 @@ async function checkAvailability(screen, pill) {
 
 async function renderMode() {
   const mode = await loadMode();
+  log.info(`settings opened mode=${mode}`);
   for (const input of document.querySelectorAll('input[name=mode]')) input.checked = input.value === mode;
   $('#youtube-app-settings').hidden = mode !== 'youtube-app';
   if (mode === 'direct') await checkHelper();
