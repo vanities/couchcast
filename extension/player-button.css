@@ -1,0 +1,44 @@
+.couchcast-button {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+}
+
+.couchcast-button svg {
+  width: 24px;
+  height: 24px;
+}
+
+.couchcast-button.busy svg {
+  animation: couchcast-pulse 0.9s ease-in-out infinite;
+}
+
+@keyframes couchcast-pulse {
+  50% { opacity: 0.35; }
+}
+
+.couchcast-tip {
+  position: absolute;
+  z-index: 1003;
+  transform: translate(-50%, -100%);
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: rgba(28, 28, 28, 0.85);
+  color: #eee;
+  font: 500 13px/15px "YouTube Noto", Roboto, Arial, Helvetica, sans-serif;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.1s linear;
+}
+
+.couchcast-tip.visible { opacity: 1; }
+.couchcast-tip[data-kind="ok"] { background: rgba(21, 128, 61, 0.92); }
+.couchcast-tip[data-kind="error"] {
+  background: rgba(185, 28, 28, 0.92);
+  white-space: normal;
+  width: max-content;
+  max-width: 320px;
+}
+
+.ytp-autohide .couchcast-tip:not([data-kind="ok"]):not([data-kind="error"]) { opacity: 0; }

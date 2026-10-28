@@ -12,18 +12,50 @@
     "default_icon": "icons/icon.svg"
   },
   "background": {
-    "scripts": ["background.js"],
+    "scripts": [
+      "background.js"
+    ],
     "type": "module"
   },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.youtube.com/*",
+        "https://www.youtube-nocookie.com/embed/*"
+      ],
+      "js": [
+        "player-button.js"
+      ],
+      "css": [
+        "player-button.css"
+      ],
+      "all_frames": true,
+      "run_at": "document_idle"
+    }
+  ],
   "options_ui": {
     "page": "options.html",
     "open_in_tab": true
   },
-  "permissions": ["activeTab", "contextMenus", "notifications", "scripting", "storage"],
-  "host_permissions": ["https://www.youtube.com/*"],
+  "permissions": [
+    "activeTab",
+    "contextMenus",
+    "notifications",
+    "scripting",
+    "storage"
+  ],
+  "optional_permissions": [
+    "nativeMessaging"
+  ],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "https://www.youtube-nocookie.com/*"
+  ],
   "commands": {
     "_execute_action": {
-      "suggested_key": { "default": "Alt+Shift+Y" },
+      "suggested_key": {
+        "default": "Alt+Shift+Y"
+      },
       "description": "Cast the current video to your TV"
     }
   },
@@ -31,7 +63,11 @@
     "gecko": {
       "id": "couchcast@vanities",
       "strict_min_version": "140.0",
-      "data_collection_permissions": { "required": ["none"] }
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
     },
     "gecko_android": {
       "strict_min_version": "142.0"

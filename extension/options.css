@@ -131,3 +131,14 @@ kbd {
   border: 1px solid var(--border);
   border-radius: 4px;
 }
+
+.choice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 0;
+  cursor: pointer;
+}
+.choice input { margin-top: 4px; accent-color: var(--accent); }
+.choice strong { display: block; }
+.choice .muted { display: block; font-size: 14px; }

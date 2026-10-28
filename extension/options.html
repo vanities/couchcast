@@ -22,6 +22,26 @@
     </section>
 
     <section>
+      <h2>How it plays</h2>
+      <label class="choice">
+        <input type="radio" name="mode" value="direct">
+        <span>
+          <strong>No ads, straight to Apple TV</strong>
+          <span class="muted">This computer finds the video's stream and hands it to your Apple TV over AirPlay, so YouTube's ads never play. Needs the free Couchcast helper app on this computer.</span>
+        </span>
+      </label>
+      <label class="choice">
+        <input type="radio" name="mode" value="youtube-app">
+        <span>
+          <strong>YouTube app on the TV</strong>
+          <span class="muted">Works with any TV that has the YouTube app, with nothing to install. The TV's YouTube app plays its usual ads unless you have Premium.</span>
+        </span>
+      </label>
+      <p id="helper-status" class="status" role="status"></p>
+    </section>
+
+    <div id="youtube-app-settings">
+    <section>
       <h2>Link a TV</h2>
       <ol class="steps">
         <li>On your TV, open the <strong>YouTube</strong> app.</li>
@@ -40,15 +60,17 @@
       <ul id="screens" class="screens"></ul>
       <p id="empty" class="muted">No TVs linked yet.</p>
     </section>
+    </div>
 
     <section>
       <h2>Casting</h2>
       <ul class="tips">
-        <li>Click the Couchcast button in the toolbar on any YouTube video. The TV picks up where you are, and the video pauses in Firefox.</li>
+        <li>Hover a YouTube video and click the cast button in the player controls, next to the settings gear. The TV picks up where you are, and the video pauses in Firefox.</li>
+        <li>Or click the Couchcast button in the Firefox toolbar.</li>
         <li>Right-click a YouTube link and choose <strong>Cast to TV</strong> to send it without opening it.</li>
         <li>Shortcut: <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>Y</kbd> (<kbd>Option</kbd>+<kbd>Shift</kbd>+<kbd>Y</kbd> on a Mac). Change it under about:addons, Manage Extension Shortcuts.</li>
       </ul>
-      <p class="muted">The YouTube app has to be open on the TV. Couchcast goes through YouTube's servers, the same way the YouTube phone app does, so it never scans or touches your home network.</p>
+      <p class="muted">In YouTube-app mode, the YouTube app has to be open on the TV. That mode goes through YouTube's servers, the same way the YouTube phone app does, and never touches your home network.</p>
     </section>
   </main>
   <script type="module" src="options.js"></script>

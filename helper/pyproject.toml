@@ -1,0 +1,25 @@
+[project]
+name = "couchcast-helper"
+version = "0.1.0"
+description = "Plays YouTube on an Apple TV over AirPlay, without ads, for the Couchcast Firefox extension"
+license = "GPL-3.0-or-later"
+requires-python = ">=3.12"
+dependencies = [
+    # Released pyatv (0.18.0) can't start AirPlay URL playback on tvOS 26+ (postlund/pyatv#2906).
+    # Pinned to the fix from the #2846 rework until it ships in a release.
+    "pyatv @ git+https://github.com/robkochman/pyatv@8144c77c6cecbed4f9ba2adb5a350ad86a8f6604",
+    "yt-dlp[default]>=2026.10.26",
+]
+
+[project.scripts]
+couchcast-helper = "couchcast_helper.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[dependency-groups]
+dev = ["pytest>=8"]

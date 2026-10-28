@@ -1,0 +1,6 @@
+#!/bin/sh
+# Firefox starts native apps with a bare PATH, which hides uv and the deno runtime yt-dlp needs
+# to solve YouTube's JS challenges.
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$HOME/.deno/bin:$HOME/.cargo/bin:$PATH"
+HERE="$(cd "$(dirname "$0")/.." && pwd)"
+exec uv run --project "$HERE" --frozen --quiet python -m couchcast_helper host "$@"

@@ -1,11 +1,16 @@
 import { LoungeError, castVideo, getAvailability, pairWithCode, refreshToken, tokenExpiring } from './lib/lounge.js';
 import { logger } from './lib/log.js';
 import {
+  HELPER,
   defaultScreen,
+  hasHelperAccess,
   hasYouTubeAccess,
+  loadMode,
   loadState,
   removeScreen,
+  requestHelperAccess,
   requestYouTubeAccess,
+  saveMode,
   saveScreen,
   setDefaultScreen,
 } from './lib/store.js';
@@ -137,5 +142,47 @@ async function checkAvailability(screen, pill) {
   }
 }
 
+async function renderMode() {
+  const mode = await loadMode();
+  for (const input of document.querySelectorAll('input[name=mode]')) input.checked = input.value === mode;
+  $('#youtube-app-settings').hidden = mode !== 'youtube-app';
+  if (mode === 'direct') await checkHelper();
+  else setStatus($('#helper-status'), '');
+}
+
+for (const input of document.querySelectorAll('input[name=mode]')) {
+  input.addEventListener('change', () => {
+    if (input.value !== 'direct') {
+      saveMode('youtube-app').then(renderMode);
+      return;
+    }
+    // permissions.request only works inside the user's click, so nothing may be awaited first.
+    requestHelperAccess().then(async (granted) => {
+      log.info(`helper access granted=${granted}`);
+      await saveMode(granted ? 'direct' : 'youtube-app');
+      await renderMode();
+    });
+  });
+}
+
+async function checkHelper() {
+  const status = $('#helper-status');
+  if (!(await hasHelperAccess())) {
+    setStatus(status, 'Couchcast needs your OK to talk to the helper app. Pick this option again and allow it.', 'error');
+    return;
+  }
+  setStatus(status, 'Checking the helper app…');
+  try {
+    const reply = await browser.runtime.sendNativeMessage(HELPER, { type: 'ping' });
+    log.info(`helper ping ok version=${reply?.version} device=${reply?.device ?? '-'}`);
+    if (reply?.device) setStatus(status, `Helper ${reply.version} is ready and plays on ${reply.device}.`, 'ok');
+    else setStatus(status, 'The helper is installed, but no Apple TV is paired yet. In a terminal, run: couchcast-helper pair', 'error');
+  } catch (error) {
+    log.warn(`helper ping failed: ${error.message}`);
+    setStatus(status, "The Couchcast helper isn't installed on this computer yet. The README has the two setup commands.", 'error');
+  }
+}
+
 await renderAccess();
+await renderMode();
 await renderScreens();

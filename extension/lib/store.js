@@ -1,9 +1,26 @@
 // storage.local layout:
+//   mode             "youtube-app" (Lounge, no helper) or "direct" (helper + AirPlay, no ads)
 //   deviceId         id this browser presents to TVs (one per install)
 //   screens          [{ screenId, name, loungeToken, expiration, linkedAt, tv }]
 //   defaultScreenId  which screen the toolbar button casts to
 
+export const HELPER = 'couchcast';
 const LOUNGE_ACCESS = { origins: ['https://www.youtube.com/*'] };
+const HELPER_ACCESS = { permissions: ['nativeMessaging'] };
+
+export async function loadMode() {
+  const { mode } = await browser.storage.local.get('mode');
+  return mode === 'direct' ? 'direct' : 'youtube-app';
+}
+
+export async function saveMode(mode) {
+  await browser.storage.local.set({ mode });
+}
+
+// Optional, so people who only use the YouTube-app mode never see the "communicate with other
+// programs" install warning.
+export const hasHelperAccess = () => browser.permissions.contains(HELPER_ACCESS);
+export const requestHelperAccess = () => browser.permissions.request(HELPER_ACCESS);
 
 export async function loadState() {
   const state = await browser.storage.local.get(['deviceId', 'screens', 'defaultScreenId']);
