@@ -117,11 +117,51 @@ def spawn(url: str, position: float, title: str | None, device: dict, video_id: 
     args = [sys.executable, "-m", "couchcast_helper", "player", "--url", url, "--position", str(position), "--title", title or "", "--rate", str(rate)]
     if video_id:
         args += ["--video-id", video_id]
+    if sys.platform == "darwin" and os.environ.get("COUCHCAST_SPAWN") != "direct":
+        return _spawn_via_launchd(args, device)
     # A new session keeps the player alive after Firefox reaps the messaging host's process group.
     with open(state.LOG, "a") as log_file:
         proc = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=log_file, stderr=log_file, start_new_session=True)
     log.info("[player] spawned pid=%s device=%s video=%s position=%.0f rate=%sx", proc.pid, device["name"], video_id, position, rate)
     return proc.pid
+
+
+LAUNCHD_PREFIX = "com.couchcast.player."
+
+
+def _spawn_via_launchd(args: list[str], device: dict) -> int:
+    """macOS treats anything started under Firefox as Firefox, even in its own session, and the
+    Apple TV dropped every AirPlay session from such a player about 4 seconds in, while the same
+    player started from a terminal or by launchd held (e2e runs A/B vs C, 2026-10-28). So launchd
+    starts it. `launchctl submit` jobs restart when they exit, which run() guards against."""
+    _cleanup_launchd_jobs()
+    label = f"{LAUNCHD_PREFIX}{int(time.time() * 1000)}"
+    t0 = time.monotonic()
+    command = ["launchctl", "submit", "-l", label, "-o", str(state.LOG), "-e", str(state.LOG), "--", *args, "--launchd-label", label]
+    subprocess.run(command, check=True, capture_output=True)
+    for _ in range(50):
+        pid = _launchd_pid(label)
+        if pid:
+            log.info("[player] launchd started pid=%s label=%s device=%s in %.1fs", pid, label, device["name"], time.monotonic() - t0)
+            return pid
+        time.sleep(0.1)
+    raise RuntimeError(f"launchd didn't start the player ({label})")
+
+
+def _launchd_pid(label: str) -> int | None:
+    listing = subprocess.run(["launchctl", "list", label], capture_output=True, text=True).stdout
+    return next((int(line.split("=")[1].strip(" ;")) for line in listing.splitlines() if '"PID"' in line), None)
+
+
+def _cleanup_launchd_jobs() -> None:
+    """Finished players stay loaded in launchd (they don't restart); unload them."""
+    listing = subprocess.run(["launchctl", "list"], capture_output=True, text=True).stdout
+    for line in listing.splitlines():
+        parts = line.split("\t")
+        if len(parts) == 3 and parts[2].startswith(LAUNCHD_PREFIX) and parts[0] == "-":
+            subprocess.run(["launchctl", "remove", parts[2]], capture_output=True)
+            (state.HOME / "launchd" / f"{parts[2]}.started").unlink(missing_ok=True)
+            log.debug("[player] unloaded finished launchd job %s", parts[2])
 
 
 def wait_for_start(pid: int, timeout: float = 15) -> dict:
@@ -136,8 +176,30 @@ def wait_for_start(pid: int, timeout: float = 15) -> dict:
     return {"pid": pid, "state": "starting"}
 
 
-def run(url: str, position: float, title: str, device: dict, video_id: str | None = None, rate: float = 1.0) -> int:
+def run(
+    url: str, position: float, title: str, device: dict, video_id: str | None = None, rate: float = 1.0, launchd_label: str | None = None
+) -> int:
     """Entry point of the background process."""
+    marker = state.HOME / "launchd" / f"{launchd_label}.started" if launchd_label else None
+    if marker and marker.exists():
+        # launchd restarts submitted jobs; a player that already ran must not replay the video.
+        log.warning("[player] launchd restarted %s after it ran; retiring the job", launchd_label)
+        marker.unlink(missing_ok=True)
+        subprocess.run(["launchctl", "remove", launchd_label])
+        return 0
+    if marker:
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.touch()
+    try:
+        return _run(url, position, title, device, video_id, rate)
+    finally:
+        if marker:
+            log.info("[player] removing launchd job %s", launchd_label)
+            marker.unlink(missing_ok=True)
+            subprocess.run(["launchctl", "remove", launchd_label])
+
+
+def _run(url: str, position: float, title: str, device: dict, video_id: str | None, rate: float) -> int:
     session = Session(title, device, position, video_id, rate)
     if sys.platform == "darwin":
         # Idle sleep would drop the AirPlay connection mid-video.

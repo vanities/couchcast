@@ -4,8 +4,8 @@ import time
 from collections.abc import Callable
 
 import pyatv
-from pyatv.const import FeatureName, FeatureState, OperatingSystem, Protocol
-from pyatv.interface import PairingHandler, PushListener
+from pyatv.const import OperatingSystem, Protocol
+from pyatv.interface import PairingHandler
 from pyatv.protocols.raop.protocols import airplayv2
 from pyatv.storage.file_storage import FileStorage
 
@@ -13,27 +13,115 @@ from . import state
 
 log = logging.getLogger("couchcast")
 
-# (position, total_time, device_state) from the TV, any of which can be None.
+# (position, duration, state) from the TV; any of them can be None. state is "Playing", "Paused",
+# or another capitalized playbackState name ("Loading", "Stopped").
 StatusCallback = Callable[[float | None, float | None, str | None], None]
 
-
-# pyatv's play_url always starts AirPlay 2 video at rate 1.0 and keeps its /command channel
-# private. Wrapping the one method that sends those commands lets playback start at the
-# browser's speed. Tied to the pinned pyatv commit; drop it once play_url takes a rate.
+# pyatv's AirPlay 2 URL playback (the pinned commit) starts every video at 0:00 and at 1x, and
+# drops the TV's position reports. Two wrappers fix that until it's upstream:
+#  * outgoing: give the queued item "Start-Position" as a CMTime, the key Apple's own senders
+#    use (pyatv's "Start-Position-Seconds" is ignored on tvOS 27), and start at the browser's speed;
+#  * incoming: forward the TV's playbackState and timeJumped events, which carry its position.
+# Command and event shapes follow the TV's own events and LIVI's receiver (github.com/f-io/LIVI).
 _ORIGINAL_SEND = airplayv2.AirPlayV2._send_url_command
-_START_RATE = {"value": 1.0}
+_ORIGINAL_EVENT = airplayv2.AirPlayV2._handle_event
+_LIVE: dict = {"rate": 1.0, "position": 0.0, "protocol": None, "on_event": None}
 
 
-async def _send_at_start_rate(self, command):
-    rate = _START_RATE["value"]
-    if command.get("type") == "setRate" and command.get("rate") == 1.0 and rate != 1.0:
-        log.info("[airplay] starting playback at %sx", rate)
-        command = {**command, "rate": rate}
-    log.debug("[airplay] /command %s", command.get("type"))
-    return await _ORIGINAL_SEND(self, command)
+def cmtime(seconds: float) -> dict:
+    return {"value": int(round(seconds * 1000)), "timescale": 1000, "flags": 1, "epoch": 0}
 
 
-airplayv2.AirPlayV2._send_url_command = _send_at_start_rate
+def seconds_of(value) -> float | None:
+    if isinstance(value, dict) and value.get("timescale"):
+        return value.get("value", 0) / value["timescale"]
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+async def _send_command(self, command: dict):
+    _LIVE["protocol"] = self
+    kind = command.get("type")
+    if kind == "insertPlayQueueItem" and _LIVE["position"] > 0:
+        command = {**command, "item": {**command["item"], "Start-Position": cmtime(_LIVE["position"])}}
+        log.info("[airplay] queueing the video at %.0fs", _LIVE["position"])
+    elif kind == "setRate" and command.get("rate") == 1.0 and _LIVE["rate"] != 1.0:
+        command = {**command, "rate": _LIVE["rate"]}
+        log.info("[airplay] starting playback at %sx", _LIVE["rate"])
+    t0 = time.perf_counter()
+    response = await _ORIGINAL_SEND(self, command)
+    log.debug("[airplay] /command %s -> %s in %s", kind, getattr(response, "code", "?"), ms(t0))
+    return response
+
+
+def _handle_event(self, event: dict) -> None:
+    _ORIGINAL_EVENT(self, event)
+    listener = _LIVE["on_event"]
+    if listener:
+        try:
+            listener(event)
+        except Exception:
+            log.exception("[airplay] event listener failed")
+
+
+airplayv2.AirPlayV2._send_url_command = _send_command
+airplayv2.AirPlayV2._handle_event = _handle_event
+
+
+async def send_command(command: dict):
+    protocol = _LIVE["protocol"]
+    if protocol is None:
+        raise RuntimeError("no AirPlay session to send to")
+    return await protocol._send_url_command(command)
+
+
+class EventTracker:
+    """Turns the TV's events into position updates, and seeks once if the TV still starts short
+    of the requested position."""
+
+    def __init__(self, on_status: StatusCallback, target: float):
+        self.on_status = on_status
+        self.target = target
+        self.seek_sent = target <= 0
+
+    def __call__(self, event: dict) -> None:
+        kind = event.get("type")
+        if kind == "playbackState":
+            params = event.get("params") or {}
+            name = str(params.get("playbackState") or event.get("name") or "").lower()
+            position = seconds_of(params.get("position"))
+            duration = seconds_of(params.get("duration"))
+            log.info("[airplay] tv %s at=%s rate=%s", name, _fmt(position), params.get("rate"))
+            self.on_status(position, duration, name.capitalize() or None)
+            if name == "playing" and position is not None:
+                self._seek_if_short(position)
+        elif kind == "notification":
+            name = event.get("name")
+            if name == "timeJumped":
+                position = seconds_of(event.get("position"))
+                log.info("[airplay] tv jumped to %s", _fmt(position))
+                self.on_status(position, None, None)
+            else:
+                log.debug("[airplay] tv notification %s", name)
+
+    def _seek_if_short(self, position: float) -> None:
+        if self.seek_sent or position >= self.target - 5:
+            return
+        self.seek_sent = True
+        log.info("[airplay] tv started at %.0fs instead of %.0fs; seeking", position, self.target)
+        asyncio.get_running_loop().create_task(self._seek())
+
+    async def _seek(self) -> None:
+        try:
+            response = await send_command({"type": "seek", "time": cmtime(self.target)})
+            log.info("[airplay] seek to %.0fs -> %s", self.target, getattr(response, "code", "?"))
+        except Exception:
+            log.exception("[airplay] seek failed")
+
+
+def _fmt(seconds: float | None) -> str:
+    return "?" if seconds is None else f"{seconds:.1f}s"
 
 
 def ms(t0: float) -> str:
@@ -100,19 +188,6 @@ async def finish_pairing(storage, pairing: PairingHandler, pin: int) -> None:
     log.info("[airplay] pairing finished in %s", ms(t0))
 
 
-class _StatusListener(PushListener):
-    def __init__(self, callback: StatusCallback) -> None:
-        self.callback = callback
-
-    def playstatus_update(self, updater, playstatus) -> None:
-        state_name = playstatus.device_state.name if playstatus.device_state else None
-        log.debug("[airplay] status %s at=%s/%s", state_name, playstatus.position, playstatus.total_time)
-        self.callback(playstatus.position, playstatus.total_time, state_name)
-
-    def playstatus_error(self, updater, exception: Exception) -> None:
-        log.debug("[airplay] status update error: %s", exception)
-
-
 async def play(
     loop,
     storage,
@@ -125,26 +200,20 @@ async def play(
 ) -> None:
     """Blocks until playback ends: AirPlay video stops if the sender hangs up."""
     t0 = time.perf_counter()
-    _START_RATE["value"] = rate
+    _LIVE.update(rate=rate, position=position, protocol=None, on_event=EventTracker(on_status or (lambda *_: None), position))
     atv = await pyatv.connect(conf, loop, protocol=Protocol.AirPlay, storage=storage)
     log.info("[airplay] connected to %s in %s", conf.name, ms(t0))
     try:
-        if on_status:
-            if atv.features.in_state(FeatureState.Available, FeatureName.PushUpdates):
-                atv.push_updater.listener = _StatusListener(on_status)
-                atv.push_updater.start()
-                log.info("[airplay] listening for playback status from %s", conf.name)
-            else:
-                log.info("[airplay] %s doesn't push playback status over this connection", conf.name)
         log.info("[airplay] play_url at=%.0fs rate=%sx", position, rate)
         task = asyncio.ensure_future(atv.stream.play_url(url, position=position))
         # play_url never returns while the video plays, so "still running after a few seconds
         # without an error" is the only start signal it gives.
         done, _ = await asyncio.wait({task}, timeout=4)
         if not done:
-            log.info("[airplay] playback running on %s at=%.0fs (%s after connect)", conf.name, position, ms(t0))
+            log.info("[airplay] playback running on %s (%s after connect)", conf.name, ms(t0))
             on_started()
         await task
         log.info("[airplay] playback ended on %s after %s", conf.name, ms(t0))
     finally:
+        _LIVE.update(protocol=None, on_event=None)
         atv.close()

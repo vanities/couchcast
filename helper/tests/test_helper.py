@@ -77,7 +77,7 @@ def test_credential_files_are_locked_to_the_owner(tmp_path):
     assert creds.stat().st_mode & 0o777 == 0o600
 
 
-def test_start_rate_rewrites_only_the_initial_set_rate(monkeypatch):
+def test_outgoing_commands_carry_the_start_position_and_speed(monkeypatch):
     import asyncio
 
     from couchcast_helper import airplay
@@ -88,10 +88,50 @@ def test_start_rate_rewrites_only_the_initial_set_rate(monkeypatch):
         sent.append(command)
 
     monkeypatch.setattr(airplay, "_ORIGINAL_SEND", fake_send)
-    monkeypatch.setitem(airplay._START_RATE, "value", 1.5)
-    for command in ({"type": "insertPlayQueueItem"}, {"type": "setRate", "rate": 1.0}):
-        asyncio.run(airplay._send_at_start_rate(None, command))
-    assert sent == [{"type": "insertPlayQueueItem"}, {"type": "setRate", "rate": 1.5}]
+    monkeypatch.setattr(airplay, "_LIVE", {**airplay._LIVE, "rate": 1.5, "position": 257.0})
+    item = {"uuid": "X", "Content-Location": "https://m/x.m3u8", "Start-Position-Seconds": 257.0}
+    for command in ({"type": "insertPlayQueueItem", "item": item}, {"type": "setProperty"}, {"type": "setRate", "rate": 1.0}):
+        asyncio.run(airplay._send_command(None, command))
+    assert sent[0]["item"]["Start-Position"] == {"value": 257000, "timescale": 1000, "flags": 1, "epoch": 0}
+    assert sent[0]["item"]["Content-Location"] == "https://m/x.m3u8"
+    assert sent[1] == {"type": "setProperty"}
+    assert sent[2] == {"type": "setRate", "rate": 1.5}
+
+
+def test_cmtime_round_trips():
+    from couchcast_helper import airplay
+
+    assert airplay.seconds_of(airplay.cmtime(257.25)) == 257.25
+    assert airplay.seconds_of({"value": 2351049, "timescale": 1000, "flags": 1, "epoch": 0}) == 2351.049
+    assert airplay.seconds_of(None) is None
+
+
+def test_tv_events_become_positions_and_a_short_start_triggers_one_seek(monkeypatch):
+    """Event shapes copied from a real tvOS 27 session (helper.log, 2026-10-28)."""
+    import asyncio
+
+    from couchcast_helper import airplay
+
+    statuses, seeks = [], []
+
+    async def fake_send(command):
+        seeks.append(command)
+
+    monkeypatch.setattr(airplay, "send_command", fake_send)
+    tracker = airplay.EventTracker(lambda *status: statuses.append(status), target=257)
+    zero = {"flags": 1, "value": 0, "timescale": 1, "epoch": 0}
+
+    async def feed():
+        tracker({"type": "playbackState", "name": "loading"})
+        tracker({"type": "playbackState", "params": {"playbackState": "playing", "position": zero, "rate": 1.0,
+                                                     "duration": {"value": 2351049, "timescale": 1000}}})
+        tracker({"type": "playbackState", "params": {"playbackState": "playing", "position": zero}})
+        tracker({"type": "notification", "name": "timeJumped", "position": {"value": 257000, "timescale": 1000}})
+        await asyncio.sleep(0)
+
+    asyncio.run(feed())
+    assert statuses == [(None, None, "Loading"), (0.0, 2351.049, "Playing"), (0.0, None, "Playing"), (257.0, None, None)]
+    assert seeks == [{"type": "seek", "time": {"value": 257000, "timescale": 1000, "flags": 1, "epoch": 0}}]
 
 
 @pytest.fixture

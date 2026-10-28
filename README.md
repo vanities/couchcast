@@ -77,16 +77,30 @@ bun run lounge pair 123456789012
 bun run lounge cast "https://www.youtube.com/watch?v=aqz-KE-bpKQ" --watch=15
 ```
 
+End-to-end test against the real TV: a real Firefox (driven by Selenium) with a pre-configured
+copy of the extension opens a YouTube video, clicks the in-player cast button, and checks from the
+TV's own events that the session holds and the position carried over. It plays on the TV.
+
+```bash
+uv run --project e2e python e2e/run.py            # add --no-pause, --watch 60, --url ...
+```
+
 Logs: the extension uses `[cast]`, `[lounge]`, `[options]` and `[couchcast]` prefixes (about:debugging,
-Inspect). The helper logs to `~/.config/couchcast/helper.log`.
+Inspect). The helper logs to `~/.config/couchcast/helper.log`; set `"debug": true` in
+`~/.config/couchcast/config.json` (or `COUCHCAST_DEBUG=1`) to include pyatv's protocol traffic.
 
 ## Limitations
 
 - No-ads mode: the computer has to stay awake while the video plays, because AirPlay video stops
   when the sender disconnects (the helper holds off idle sleep, but closing a laptop lid still ends
-  it). pyatv is pinned to an unreleased fix for tvOS 26 and newer
-  ([postlund/pyatv#2906](https://github.com/postlund/pyatv/issues/2906)). When YouTube changes
-  things, `uv lock --upgrade-package yt-dlp` usually fixes it.
+  it). On macOS the player runs as its own launchd job: the Apple TV drops AirPlay sessions from
+  processes macOS attributes to Firefox a few seconds in.
+- pyatv is pinned to an unreleased fix for tvOS 26 and newer
+  ([postlund/pyatv#2906](https://github.com/postlund/pyatv/issues/2906)), with srptools held below
+  2.0 ([postlund/pyatv#2934](https://github.com/postlund/pyatv/issues/2934)). The helper also
+  wraps pyatv's AirPlay 2 commands to start at the right position and speed and to read the TV's
+  position from its events. When YouTube changes things, `uv lock --upgrade-package yt-dlp` usually
+  fixes it.
 - YouTube-app mode: the Lounge API is unofficial. It can't wake the TV or open the YouTube app.
 - YouTube only, for now.
 

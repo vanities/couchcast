@@ -17,6 +17,15 @@ export async function saveMode(mode) {
   await browser.storage.local.set({ mode });
 }
 
+export async function loadPauseAfterCast() {
+  const { pauseAfterCast } = await browser.storage.local.get('pauseAfterCast');
+  return pauseAfterCast !== false;
+}
+
+export async function savePauseAfterCast(pauseAfterCast) {
+  await browser.storage.local.set({ pauseAfterCast });
+}
+
 // Optional, so people who only use the YouTube-app mode never see the "communicate with other
 // programs" install warning.
 export const hasHelperAccess = () => browser.permissions.contains(HELPER_ACCESS);

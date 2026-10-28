@@ -7,3 +7,6 @@ web-ext-artifacts/
 helper/.venv/
 __pycache__/
 .pytest_cache/
+
+# e2e
+e2e/.venv/

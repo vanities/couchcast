@@ -6,11 +6,13 @@ import {
   hasHelperAccess,
   hasYouTubeAccess,
   loadMode,
+  loadPauseAfterCast,
   loadState,
   removeScreen,
   requestHelperAccess,
   requestYouTubeAccess,
   saveMode,
+  savePauseAfterCast,
   saveScreen,
   setDefaultScreen,
 } from './lib/store.js';
@@ -142,8 +144,14 @@ async function checkAvailability(screen, pill) {
   }
 }
 
+$('#pause-after-cast').addEventListener('change', async (event) => {
+  await savePauseAfterCast(event.target.checked);
+  log.info(`pause after cast=${event.target.checked}`);
+});
+
 async function renderMode() {
   const mode = await loadMode();
+  $('#pause-after-cast').checked = await loadPauseAfterCast();
   log.info(`settings opened mode=${mode}`);
   for (const input of document.querySelectorAll('input[name=mode]')) input.checked = input.value === mode;
   $('#youtube-app-settings').hidden = mode !== 'youtube-app';

@@ -50,7 +50,9 @@ def _setup(
         bool, typer.Option("--version", callback=_print_version, is_eager=True, help="Show the version.")
     ] = False,
 ) -> None:
-    state.setup_logging(verbose=verbose, interactive=ctx.invoked_subcommand not in HEADLESS)
+    state.setup_logging(
+        verbose=verbose, interactive=ctx.invoked_subcommand not in HEADLESS, echo_stderr=ctx.invoked_subcommand == "host"
+    )
 
 
 def guarded(func):
@@ -374,9 +376,10 @@ def player_process(
     title: Annotated[str, typer.Option()] = "",
     video_id: Annotated[Optional[str], typer.Option("--video-id")] = None,
     rate: Annotated[float, typer.Option()] = 1.0,
+    launchd_label: Annotated[Optional[str], typer.Option("--launchd-label")] = None,
 ) -> None:
     device = state.read_json(state.CONFIG)["device"]
-    raise typer.Exit(player.run(url, position, title, device, video_id=video_id, rate=rate))
+    raise typer.Exit(player.run(url, position, title, device, video_id=video_id, rate=rate, launchd_label=launchd_label))
 
 
 def friendly(error: Exception) -> str:

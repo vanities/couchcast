@@ -9,7 +9,8 @@
     "lint": "web-ext lint --source-dir extension",
     "start": "web-ext run --source-dir extension --start-url https://www.youtube.com/watch?v=aqz-KE-bpKQ",
     "build": "web-ext build --source-dir extension --artifacts-dir web-ext-artifacts --overwrite-dest",
-    "lounge": "bun scripts/lounge-cli.js"
+    "lounge": "bun scripts/lounge-cli.js",
+    "dev": "web-ext run --source-dir extension --firefox-profile .dev/firefox-profile --profile-create-if-missing --keep-profile-changes --start-url https://www.youtube.com --pref devtools.console.stdout.content=true --pref devtools.console.stdout.chrome=true"
   },
   "devDependencies": {
     "web-ext": "^10.8.0"

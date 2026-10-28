@@ -1,6 +1,15 @@
 import { LoungeError, castVideo } from './lib/lounge.js';
 import { logger, since } from './lib/log.js';
-import { HELPER, defaultScreen, hasHelperAccess, hasYouTubeAccess, loadMode, loadState, saveScreen } from './lib/store.js';
+import {
+  HELPER,
+  defaultScreen,
+  hasHelperAccess,
+  hasYouTubeAccess,
+  loadMode,
+  loadPauseAfterCast,
+  loadState,
+  saveScreen,
+} from './lib/store.js';
 import { parseYouTubeUrl } from './lib/youtube-url.js';
 
 const log = logger('cast');
@@ -103,7 +112,7 @@ async function castFromTab(tab, { frameId = 0, fromUrl = parseYouTubeUrl(tab.url
     `cast video=${videoId} list=${video.listId ?? '-'} at=${video.startSeconds ?? 'live'} rate=${video.rate}x from=${live ? 'player' : 'url'}`,
   );
   const result = await castVideoTo(video, tab, { source: frameId ? 'embed' : 'tab', notify });
-  if (result.ok) await pausePage(tab.id, frameId);
+  if (result.ok && (await loadPauseAfterCast())) await pausePage(tab.id, frameId);
   return result;
 }
 
