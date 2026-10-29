@@ -47,9 +47,10 @@ started=$(date +%s)
 echo "[sign] $(date +%T) submitting version $VERSION to the $CHANNEL channel" >&2
 if bunx web-ext sign "$@"; then
   if [ "$CHANNEL" = unlisted ]; then
-    # AMO names the download after a hash; keep a copy under the name the README uses.
+    # The download has been named after a hash (0.1.0) and after the version (0.1.2); keep it
+    # under the name the README uses either way.
     signed=$(ls -t web-ext-artifacts/*.xpi | head -n 1)
-    cp "$signed" "web-ext-artifacts/couchcast-$VERSION.xpi"
+    [ "$signed" = "web-ext-artifacts/couchcast-$VERSION.xpi" ] || cp "$signed" "web-ext-artifacts/couchcast-$VERSION.xpi"
     echo "[sign] $(date +%T) signed in $(($(date +%s) - started))s: web-ext-artifacts/couchcast-$VERSION.xpi (from $(basename "$signed"))" >&2
   else
     echo "[sign] $(date +%T) submitted in $(($(date +%s) - started))s; listed versions are published on addons.mozilla.org" >&2
