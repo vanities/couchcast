@@ -90,9 +90,10 @@ def forget_websites(profile: Path) -> None:
             path.unlink()
 
 
-def launch(extension: Path, headless: bool, ublock: bool) -> webdriver.Firefox:
+def launch(extension: Path, headless: bool, ublock: bool, bidi: bool = False) -> webdriver.Firefox:
     options = Options()
     options.binary_location = FIREFOX
+    options.enable_bidi = bidi
     # media.volume_scale silences everything the test Firefox plays, ads included.
     for key, value in {"media.autoplay.default": 0, "media.autoplay.blocking_policy": 0, "media.volume_scale": "0.0"}.items():
         options.set_preference(key, value)
@@ -216,7 +217,8 @@ def click_cast(driver: webdriver.Firefox) -> str:
         lambda d: d.execute_script(
             "const t = document.querySelector('#movie_player .couchcast-tip');"
             "return t && t.dataset.kind ? `${t.dataset.kind}: ${t.textContent}` : null"
-        )
+        ),
+        message="the cast button showed no result within 40s",
     )
 
 

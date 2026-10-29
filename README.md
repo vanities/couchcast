@@ -77,6 +77,16 @@ bun run lounge pair 123456789012
 bun run lounge cast "https://www.youtube.com/watch?v=aqz-KE-bpKQ" --watch=15
 ```
 
+Extension checks without YouTube or the TV: a real Firefox (driven by Selenium) with a
+pre-configured copy of the extension opens a stand-in YouTube watch page that Firefox's automation
+protocol serves locally. It checks what a cast sends (video, position, speed), switching videos
+inside the page, reloading the extension with the tab open, and catching a paused tab up with the
+TV. About 35 seconds, muted and headless.
+
+```bash
+uv run --project e2e python e2e/fake_youtube.py            # or name scenarios: cast switch catch-up reload
+```
+
 End-to-end test: a real Firefox (driven by Selenium) with a pre-configured copy of the extension
 opens a YouTube video, clicks the in-player cast button, and checks what reached the helper and,
 from the TV's own events, that the session holds and the position carried over. It plays on the
