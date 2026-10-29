@@ -6,6 +6,10 @@ const BUTTON_CLASS = 'couchcast-button';
 const CAST_ICON =
   'M21 3H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11z';
 
+// When the extension reloads or updates, the copy of this script that made a button goes away
+// and its button stops working, so a newer copy replaces older copies' buttons.
+const LOADED_AT = Date.now();
+
 let label = 'Cast to TV';
 let tipTimer = null;
 
@@ -26,6 +30,7 @@ function castIcon() {
 function createButton() {
   const button = document.createElement('button');
   button.className = `ytp-button ${BUTTON_CLASS}`;
+  button.dataset.loadedAt = String(LOADED_AT);
   button.setAttribute('aria-label', label);
   button.append(castIcon());
   button.addEventListener('click', onClick);
@@ -39,9 +44,14 @@ function createButton() {
 
 function inject() {
   for (const controls of document.querySelectorAll('.html5-video-player .ytp-right-controls')) {
-    if (controls.querySelector(`.${BUTTON_CLASS}`)) continue;
+    const existing = controls.querySelector(`.${BUTTON_CLASS}`);
+    if (existing && Number(existing.dataset.loadedAt ?? 0) >= LOADED_AT) continue;
     // Home-page hover previews reuse the player but aren't something you'd cast.
     if (controls.closest('ytd-video-preview, #inline-preview-player')) continue;
+    if (existing) {
+      existing.remove();
+      console.info('[couchcast] replaced a cast button left by an earlier copy of the extension');
+    }
     const button = createButton();
     const slot = controls.querySelector('.ytp-remote-button') ?? controls.querySelector('.ytp-fullscreen-button');
     if (slot) slot.before(button);
