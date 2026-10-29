@@ -176,8 +176,9 @@ More: [`web-ext sign`](https://extensionworkshop.com/documentation/develop/web-e
 
 - No-ads mode: the computer has to stay awake while the video plays, because AirPlay video stops
   when the sender disconnects (the helper holds off idle sleep, but closing a laptop lid still ends
-  it). On macOS the player runs as its own launchd job: the Apple TV drops AirPlay sessions from
-  processes macOS attributes to Firefox a few seconds in.
+  it). A video left paused on the TV for 30 minutes ends the session, so the computer can sleep
+  again; cast again to pick it back up. On macOS the player runs as its own launchd job: the Apple
+  TV drops AirPlay sessions from processes macOS attributes to Firefox a few seconds in.
 - pyatv is pinned to an unreleased fix for tvOS 26 and newer
   ([postlund/pyatv#2906](https://github.com/postlund/pyatv/issues/2906)), with srptools held below
   2.0 ([postlund/pyatv#2934](https://github.com/postlund/pyatv/issues/2934)). The helper also

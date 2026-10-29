@@ -16,7 +16,9 @@ from rich.panel import Panel
 from rich.progress import BarColumn, Progress, TextColumn
 from rich.table import Table
 
-from . import EXTENSION_ID, HOST_NAME, __version__, airplay, native, player, state, stream, ui
+# airplay (pyatv) is imported inside the commands that talk to the TV: Firefox starts this module
+# for every ping and status call, and pyatv is most of that startup time.
+from . import EXTENSION_ID, HOST_NAME, __version__, native, player, state, stream, ui
 
 log = logging.getLogger("couchcast")
 
@@ -126,6 +128,7 @@ def require_device() -> dict:
 @guarded
 def scan() -> None:
     """List the Apple TVs on your network."""
+    from . import airplay
 
     async def run():
         loop = asyncio.get_running_loop()
@@ -158,6 +161,8 @@ def pair(
 
 
 async def _pair(name: str | None) -> None:
+    from . import airplay
+
     loop = asyncio.get_running_loop()
     storage = await airplay.open_storage(loop)
     with ui.step("Looking for Apple TVs on your network…"):
@@ -240,6 +245,8 @@ def play(
 
 
 async def _play_here(device: dict, resolved: stream.Stream, position: float, rate: float) -> None:
+    from . import airplay
+
     loop = asyncio.get_running_loop()
     # Register like the background player, so the next cast (from Firefox or here) takes over
     # this one instead of two AirPlay sessions fighting over the TV.

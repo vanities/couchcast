@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import time
 from collections.abc import Callable
 
@@ -30,6 +31,10 @@ _LIVE: dict = {"rate": 1.0, "position": 0.0, "protocol": None, "on_event": None}
 # play_url gives no start signal; still running this long without an error is the signal.
 START_GRACE_S = 4.0
 HANGUP_POLL_S = 1.0
+# The TV keeps answering while a video sits paused, so without a limit the player, and the
+# caffeinate holding off sleep, never end: a paused cast kept the Mac awake for 13 hours
+# (2026-10-28). COUCHCAST_PAUSED_LIMIT_S shortens it for testing on a real TV.
+PAUSED_LIMIT_S = float(os.environ.get("COUCHCAST_PAUSED_LIMIT_S") or 30 * 60)
 
 
 def cmtime(seconds: float) -> dict:
@@ -88,6 +93,7 @@ class EventTracker:
         self.on_status = on_status
         self.target = target
         self.seek_sent = target <= 0
+        self.paused_since: float | None = None
 
     def __call__(self, event: dict) -> None:
         kind = event.get("type")
@@ -97,6 +103,10 @@ class EventTracker:
             position = seconds_of(params.get("position"))
             duration = seconds_of(params.get("duration"))
             log.info("[airplay] tv %s at=%s rate=%s", name, _fmt(position), params.get("rate"))
+            if name == "paused" and self.paused_since is None:
+                self.paused_since = time.monotonic()
+            elif name == "playing":
+                self.paused_since = None
             self.on_status(position, duration, name.capitalize() or None)
             if name == "playing" and position is not None:
                 self._seek_if_short(position)
@@ -105,6 +115,9 @@ class EventTracker:
             if name == "timeJumped":
                 position = seconds_of(event.get("position"))
                 log.info("[airplay] tv jumped to %s", _fmt(position))
+                if self.paused_since is not None:
+                    # Scrubbing a paused video means someone is still there.
+                    self.paused_since = time.monotonic()
                 self.on_status(position, None, None)
             else:
                 log.debug("[airplay] tv notification %s", name)
@@ -211,12 +224,12 @@ async def play(
         log.info("[airplay] play_url at=%.0fs rate=%sx", position, rate)
         task = asyncio.ensure_future(atv.stream.play_url(url, position=position))
         try:
-            hangup = await _supervise(task, on_started, conf.name, t0)
+            reason = await _supervise(task, on_started, conf.name, t0)
         except asyncio.CancelledError:
             task.cancel()
             raise
-        if hangup:
-            log.info("[airplay] %s ended the session after %s: %s", conf.name, ms(t0), hangup)
+        if reason:
+            log.info("[airplay] session on %s over after %s: %s", conf.name, ms(t0), reason)
         else:
             log.info("[airplay] playback ended on %s after %s", conf.name, ms(t0))
     finally:
@@ -225,8 +238,8 @@ async def play(
 
 
 async def _supervise(task: asyncio.Future, on_started: Callable[[], None], tv_name: str, t0: float) -> str | None:
-    """Waits for play_url, which returns only when the TV reports the video stopped. Returns why,
-    when the TV hung up without that report instead."""
+    """Waits for play_url, which returns only when the TV reports the video stopped. Returns why
+    the session ended without that report instead: the TV hung up, or the video sat paused."""
     started = False
     supervising_since = time.perf_counter()
     while True:
@@ -239,12 +252,20 @@ async def _supervise(task: asyncio.Future, on_started: Callable[[], None], tv_na
             log.info("[airplay] playback running on %s (%s after connect)", tv_name, ms(t0))
             on_started()
         hangup = hung_up(_LIVE["protocol"])
-        if hangup:
+        reason = hangup or paused_too_long(_LIVE["on_event"])
+        if reason:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
-            if not started:
+            if hangup and not started:
                 raise RuntimeError(f"The Apple TV hung up before the video started ({hangup}).")
-            return hangup
+            return reason
+
+
+def paused_too_long(tracker) -> str | None:
+    since = getattr(tracker, "paused_since", None)
+    if since is None or time.monotonic() - since < PAUSED_LIMIT_S:
+        return None
+    return f"left paused for {(time.monotonic() - since) / 60:.0f} min"
 
 
 def hung_up(protocol) -> str | None:

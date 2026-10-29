@@ -263,6 +263,64 @@ def test_a_hangup_before_the_video_starts_is_a_failure(monkeypatch):
         asyncio.run(scenario())
 
 
+def test_a_video_left_paused_ends_the_session_once_the_limit_passes(monkeypatch):
+    """The TV keeps answering while paused, so a time limit is the only thing that ends such a
+    session (a paused cast kept the Mac awake for 13 hours, 2026-10-28)."""
+    import asyncio
+    import time
+
+    from couchcast_helper import airplay
+
+    monkeypatch.setattr(airplay, "START_GRACE_S", 0.01)
+    monkeypatch.setattr(airplay, "HANGUP_POLL_S", 0.01)
+    monkeypatch.setattr(airplay, "PAUSED_LIMIT_S", 0.3)
+    monkeypatch.setitem(airplay._LIVE, "protocol", fake_airplay_session())
+    tracker = airplay.EventTracker(lambda *status: None, target=0)
+    monkeypatch.setitem(airplay._LIVE, "on_event", tracker)
+    paused = {"type": "playbackState", "params": {"playbackState": "paused"}}
+    playing = {"type": "playbackState", "params": {"playbackState": "playing"}}
+    scrubbed = {"type": "notification", "name": "timeJumped", "position": {"value": 90000, "timescale": 1000}}
+
+    async def scenario():
+        play_url = asyncio.ensure_future(asyncio.sleep(3600))
+        supervisor = asyncio.ensure_future(airplay._supervise(play_url, lambda: None, "TV", time.perf_counter()))
+        tracker(paused)
+        await asyncio.sleep(0.2)
+        tracker(playing)
+        await asyncio.sleep(0.2)
+        assert not supervisor.done(), "resuming before the limit keeps the session"
+        tracker(paused)
+        await asyncio.sleep(0.2)
+        tracker(scrubbed)
+        await asyncio.sleep(0.2)
+        assert not supervisor.done(), "scrubbing while paused restarts the clock"
+        reason = await asyncio.wait_for(supervisor, 1)
+        return reason, play_url.cancelled()
+
+    reason, cancelled = asyncio.run(scenario())
+    assert reason.startswith("left paused for") and cancelled
+
+
+def test_the_messaging_host_answers_without_loading_pyatv(tmp_path):
+    """Firefox starts a host process for every ping, status and cast. pyatv was most of each
+    call's quarter second of CPU (measured 2026-10-29), and only the player needs it."""
+    import os
+    import re
+
+    env = {**os.environ, "COUCHCAST_HOME": str(tmp_path)}
+    proc = subprocess.run(
+        [sys.executable, "-X", "importtime", "-m", "couchcast_helper", "host", "/fake/manifest.json", "couchcast@vanities"],
+        input=frame({"type": "status"}),
+        capture_output=True,
+        env=env,
+        timeout=60,
+    )
+    assert proc.returncode == 0, proc.stderr.decode()[-2000:]
+    (length,) = struct.unpack("=I", proc.stdout[:4])
+    assert json.loads(proc.stdout[4 : 4 + length])["ok"] is True
+    assert not re.search(rb"\|\s+pyatv\b", proc.stderr), "pyatv was imported"
+
+
 def test_the_start_signal_keeps_a_pause_the_tv_already_reported(couchcast_home):
     from couchcast_helper import player
 

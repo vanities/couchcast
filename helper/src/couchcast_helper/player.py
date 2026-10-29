@@ -10,7 +10,7 @@ import subprocess
 import sys
 import time
 
-from . import airplay, state
+from . import state
 
 log = logging.getLogger("couchcast")
 
@@ -208,6 +208,10 @@ def run(
 
 
 def _run(url: str, position: float, title: str, device: dict, video_id: str | None, rate: float) -> int:
+    # Imported here, not at the top: pyatv is most of a messaging host's startup time, and the
+    # host imports this module for status and stop, which never touch the TV.
+    from . import airplay
+
     session = Session(title, device, position, video_id, rate)
     if sys.platform == "darwin":
         # Idle sleep would drop the AirPlay connection mid-video.
