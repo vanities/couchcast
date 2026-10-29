@@ -3,6 +3,7 @@ privacy policy, the icon and the screenshots. Uses the API key in .dev/amo.env.
 
     uv run --with requests python scripts/amo_listing.py status
     uv run --with requests python scripts/amo_listing.py links         # homepage + support site from amo/listing.json
+    uv run --with requests python scripts/amo_listing.py text          # summary + description from amo/listing.json
     uv run --with requests python scripts/amo_listing.py privacy       # amo/privacy-policy.md
     uv run --with requests python scripts/amo_listing.py icon          # amo/icon-128.png
     uv run --with requests python scripts/amo_listing.py screenshots   # amo/screenshots/, replacing the old ones
@@ -99,6 +100,13 @@ def links() -> None:
     say("links set: " + " ".join(f"{name}={value['en-US']}" for name, value in fields.items()))
 
 
+def text() -> None:
+    """web-ext sends these only with the first listed version; later edits to listing.json need this."""
+    listing = json.loads((ROOT / "amo" / "listing.json").read_text())
+    call("PATCH", json={"summary": listing["summary"], "description": listing["description"]})
+    say(f"summary and description set ({len(listing['description']['en-US'])} chars)")
+
+
 def privacy() -> None:
     text = (ROOT / "amo" / "privacy-policy.md").read_text()
     call("PATCH", "eula_policy/", json={"privacy_policy": {"en-US": text}})
@@ -133,7 +141,7 @@ def captions() -> None:
             say(f"captioned preview {preview['id']}")
 
 
-COMMANDS = {"status": status, "links": links, "privacy": privacy, "icon": icon, "screenshots": screenshots, "captions": captions}
+COMMANDS = {"status": status, "links": links, "text": text, "privacy": privacy, "icon": icon, "screenshots": screenshots, "captions": captions}
 
 if __name__ == "__main__":
     for command in sys.argv[1:] or ["status"]:

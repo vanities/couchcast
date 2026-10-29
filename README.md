@@ -12,7 +12,8 @@ Chrome has a Cast button and Safari has AirPlay. Firefox has neither, so Couchca
 [latest release](https://github.com/vanities/couchcast/releases/latest). Website:
 [am2.biz/couchcast](https://am2.biz/couchcast), with [support](https://am2.biz/couchcast/support)
 and the [privacy policy](https://am2.biz/couchcast/privacy). Source:
-[github.com/vanities/couchcast](https://github.com/vanities/couchcast).
+[github.com/vanities/couchcast](https://github.com/vanities/couchcast). Problems or ideas:
+[issues](https://github.com/vanities/couchcast/issues).
 
 ## Two ways to play
 
@@ -158,8 +159,9 @@ addons.mozilla.org (AMO) in one of two channels:
   listing's text, category, license and reviewer notes are in `amo/listing.json` (desktop only,
   since Couchcast doesn't support Firefox for Android), and its privacy policy is
   `amo/privacy-policy.md`. `web-ext` doesn't send the homepage and support links, privacy policy,
-  icon or screenshots; `scripts/amo_listing.py` sets those (`uv run --with requests python
-  scripts/amo_listing.py links privacy icon screenshots`).
+  icon or screenshots, or any later edit to the summary and description; `scripts/amo_listing.py`
+  sets those (`uv run --with requests python scripts/amo_listing.py links text privacy icon
+  screenshots`).
 
 One-time setup:
 

@@ -8,4 +8,6 @@ When you cast in "YouTube app on the TV" mode, the extension sends YouTube's TV-
 
 Your settings and linked TVs stay in Firefox's storage on your computer. Nothing is sent anywhere else.
 
+This policy on the web: https://am2.biz/couchcast/privacy
+Website and help: https://am2.biz/couchcast and https://am2.biz/couchcast/support
 Source code: https://github.com/vanities/couchcast
