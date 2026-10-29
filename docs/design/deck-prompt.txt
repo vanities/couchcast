@@ -1,0 +1,12 @@
+A clean, modern design-deck board presenting three app-icon directions for "Couchcast", a Firefox browser extension that sends the YouTube video you are watching to your TV with one click (to an Apple TV over AirPlay with no ads, or to a TV's YouTube app).
+
+Layout: landscape board on a soft off-white background (#F7F7FB), three equal columns separated by generous space. At the top of each column, the direction's name in a clean geometric sans-serif. In each column, top to bottom:
+1. The icon large (about 360 px), centered.
+2. A row showing the same icon at 128 px, 32 px and 16 px on a white tile, then the same three sizes on a near-black tile (#15141A), to prove it stays legible when tiny.
+3. A row of three color swatches with their hex codes under them.
+
+Direction 1, "Couch Signal": a minimal geometric two-seat sofa silhouette, with three concentric cast arcs rising from its back-right corner like a broadcast symbol. Violet palette: #6D4AFF primary, #9B85FF light, #15141A ink.
+Direction 2, "Screen Cast": a rounded TV screen outline on a short stand, a bold play triangle inside, and three small cast arcs tucked in the screen's lower-left corner. Electric blue #3D7BFF with violet #6D4AFF accents.
+Direction 3, "Signal Monogram": a bold lowercase letter c formed by thick cast arcs, wrapping a small solid play triangle. Teal #14B8A6 with deep navy #0F172A.
+
+Style for every icon: flat, geometric, crisp vector look, thick uniform strokes and solid shapes that survive at 16 px, generous negative space, no gradients, no shadows, no texture, no text inside the icons. Must not look like the YouTube logo (no red rounded rectangle with a white play button), the Apple logo, or the Firefox logo. The only text on the board is the three direction names and the hex codes.

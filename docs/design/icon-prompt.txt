@@ -1,0 +1,7 @@
+A single app icon on a plain, pure white (#FFFFFF) background: the "Couch Signal" mark for an app called Couchcast.
+
+The sofa sits in the lower-left two thirds of the square: a minimal geometric two-seat sofa seen straight from the front, in solid flat violet #6D4AFF, with two tall rounded back cushions side by side and a thin gap between them, a rounded arm rest on each side, a solid seat base, and two short square legs.
+
+In the upper-right corner, clearly separate from the sofa, three concentric quarter-circle cast arcs in the same violet, like a cast or broadcast symbol: thick bands with even gaps, each ending in clean square cuts. The smallest arc sits just above the top-right corner of the right back cushion with a clear white gap; no arc touches or overlaps the sofa.
+
+Flat, crisp vector style with thick uniform shapes that stay legible at 16 px. No gradients, no shadows, no outline, no background shape or tile, no text. Centered as a group, filling about 88% of the canvas with even white padding.
