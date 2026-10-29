@@ -35,7 +35,7 @@ Firefox (Couchcast) --HTTPS--> www.youtube.com/api/lounge <--- YouTube app on th
 
 ## Setup
 
-1. Install the extension (desktop Firefox 140 or newer):
+1. Install the extension (desktop Firefox 142 or newer):
    - from [addons.mozilla.org](https://addons.mozilla.org/firefox/addon/couchcast/), once Mozilla's
      review is done, or
    - from the [latest release](https://github.com/vanities/couchcast/releases/latest): download
@@ -77,7 +77,7 @@ the address of a page you're on. The full policy is in [amo/privacy-policy.md](a
 
 ## Development
 
-Requires [Bun](https://bun.sh), Firefox 140 or newer, and uv for the helper.
+Requires [Bun](https://bun.sh), Firefox 142 or newer, and uv for the helper.
 
 ```bash
 bun install
@@ -158,8 +158,8 @@ Things that can't change later or that reviewers look at:
   out of the browser. Mozilla counts data sent to a native app too
   ([add-on policies](https://extensionworkshop.com/documentation/publish/add-on-policies/),
   [data collection consent](https://extensionworkshop.com/documentation/develop/firefox-builtin-data-consent/)).
-- `bun run lint` warns that Firefox for Android 140 predates `data_collection_permissions`. That's
-  expected: the extension doesn't target Android.
+- The minimum is Firefox 142, the first version whose Android build understands
+  `data_collection_permissions`; with 140 the validator warns even though Couchcast is desktop-only.
 
 More: [`web-ext sign`](https://extensionworkshop.com/documentation/develop/web-ext-command-reference/).
 

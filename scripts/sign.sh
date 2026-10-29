@@ -39,7 +39,8 @@ if [ "$CHANNEL" = listed ]; then
     echo "[sign] the first listed version needs amo/listing.json (categories, summary, license)" >&2
     exit 1
   fi
-  set -- "$@" --amo-metadata amo/listing.json
+  # Listed versions may wait on a human reviewer, and there's nothing to download, so don't wait.
+  set -- "$@" --amo-metadata amo/listing.json --approval-timeout 0
 fi
 
 started=$(date +%s)
