@@ -36,16 +36,18 @@ Firefox (Couchcast) --HTTPS--> www.youtube.com/api/lounge <--- YouTube app on th
 ## Setup
 
 1. Install the extension. Its settings page opens on first install. Pick how it plays.
-2. **No-ads mode:** set up the helper (needs [uv](https://docs.astral.sh/uv/) and
-   [deno](https://deno.com), which yt-dlp uses for YouTube's player challenges):
+2. **No-ads mode:** install the helper app (needs [uv](https://docs.astral.sh/uv/) and
+   [deno](https://deno.com), which yt-dlp uses for YouTube's player challenges), then pair it:
 
    ```bash
-   cd helper
-   uv sync
-   uv run couchcast-helper pair      # a PIN appears on the Apple TV
-   uv run couchcast-helper install   # registers the helper with Firefox
-   uv run couchcast-helper status    # check that everything is connected
+   uv tool install ./helper     # from a clone of this repo; adds the couchcast-helper command
+   couchcast-helper pair        # a PIN appears on the Apple TV
+   couchcast-helper install     # registers the helper with Firefox
+   couchcast-helper status      # check that everything is connected
    ```
+
+   From a clone you can also run it in place: `cd helper && uv sync && uv run couchcast-helper
+   install`. Either way, `install` points Firefox at the Python it ran with.
 
 3. **YouTube-app mode:** on the TV, open YouTube, then **Settings > Link with TV code**, and type
    that code into Couchcast's settings page.

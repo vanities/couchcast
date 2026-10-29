@@ -2,6 +2,7 @@ import asyncio
 import functools
 import json
 import logging
+import shlex
 import shutil
 import signal
 import sys
@@ -81,6 +82,25 @@ def guarded(func):
             ui.error(friendly(error), hint=f"Details are in {state.LOG}")
             raise typer.Exit(1) from None
 
+    return wrapper
+
+
+HOST_WRAPPER = """#!/bin/sh
+# Written by `couchcast-helper install`. Firefox starts native apps with a bare PATH, which hides
+# the deno runtime yt-dlp needs for YouTube's JS challenges.
+export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.deno/bin:$PATH"
+exec {python} -m couchcast_helper host "$@"
+"""
+
+
+def write_host_wrapper(directory: Path) -> Path:
+    """The program Firefox starts: the host on this install's own Python, wherever that lives (a
+    clone's .venv, a uv tool, Homebrew)."""
+    directory.mkdir(parents=True, exist_ok=True)
+    wrapper = directory / "couchcast-host"
+    wrapper.write_text(HOST_WRAPPER.format(python=shlex.quote(sys.executable)))
+    wrapper.chmod(0o700)
+    log.info("[install] wrote %s for %s", wrapper, sys.executable)
     return wrapper
 
 
@@ -311,7 +331,7 @@ def install() -> None:
     if target is None:
         ui.error(f"Don't know where Firefox looks for native apps on {sys.platform}.")
         raise typer.Exit(1)
-    wrapper = Path(__file__).resolve().parents[2] / "bin" / "couchcast-host"
+    wrapper = write_host_wrapper(state.HOME)
     manifest = {
         "name": HOST_NAME,
         "description": "Couchcast helper: plays YouTube on an Apple TV over AirPlay",

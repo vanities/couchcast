@@ -9,9 +9,6 @@ import pytest
 
 from couchcast_helper import native, stream
 
-HOST = Path(__file__).resolve().parents[1] / "bin" / "couchcast-host"
-
-
 def frame(message: dict) -> bytes:
     data = json.dumps(message).encode()
     return struct.pack("=I", len(data)) + data
@@ -203,9 +200,13 @@ def test_cli_lists_commands_and_hides_the_firefox_ones():
 
 
 def test_host_wrapper_answers_ping_under_firefoxs_bare_environment(tmp_path):
-    """Firefox launches native apps with a minimal env; the wrapper has to find uv by itself."""
+    """Firefox launches native apps with a minimal env; the wrapper install writes has to work there."""
+    from couchcast_helper.__main__ import write_host_wrapper
+
+    wrapper = write_host_wrapper(tmp_path)
+    assert wrapper.stat().st_mode & 0o777 == 0o700
     env = {"HOME": str(Path.home()), "PATH": "/usr/bin:/bin", "COUCHCAST_HOME": str(tmp_path)}
-    proc = subprocess.run([str(HOST), "/fake/manifest.json", "couchcast@vanities"], input=frame({"type": "ping"}), capture_output=True, env=env, timeout=60)
+    proc = subprocess.run([str(wrapper), "/fake/manifest.json", "couchcast@vanities"], input=frame({"type": "ping"}), capture_output=True, env=env, timeout=60)
     assert proc.returncode == 0, proc.stderr.decode()
     (length,) = struct.unpack("=I", proc.stdout[:4])
     reply = json.loads(proc.stdout[4 : 4 + length])
