@@ -3,6 +3,13 @@ node_modules/
 web-ext-artifacts/
 .DS_Store
 
+# Secrets: the AMO keys live in .dev/amo.env, and no env file anywhere gets committed.
+.env
+.env.*
+*.env
+# web-ext sign's record of the last AMO upload (per machine).
+.amo-upload-uuid
+
 # helper
 helper/.venv/
 __pycache__/

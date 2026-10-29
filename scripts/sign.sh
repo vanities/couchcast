@@ -19,6 +19,11 @@ if [ ! -f "$KEYS" ]; then
   echo "[sign] no $KEYS; create one with WEB_EXT_API_KEY= and WEB_EXT_API_SECRET= lines from https://addons.mozilla.org/developers/addon/api/key/" >&2
   exit 1
 fi
+# A key file git doesn't ignore would ride along in the next commit.
+if ! git check-ignore -q "$KEYS" || git ls-files --error-unmatch "$KEYS" >/dev/null 2>&1; then
+  echo "[sign] refusing to read keys from $KEYS: git would commit it; ignore it in .gitignore first" >&2
+  exit 1
+fi
 chmod 600 "$KEYS"
 set -a
 . "./$KEYS"
