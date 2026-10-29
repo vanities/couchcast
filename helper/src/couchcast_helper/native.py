@@ -106,11 +106,15 @@ def serve() -> int:
         log.exception("[host] request failed")
         reply = {"ok": False, "error": f"Couchcast helper error: {error}"}
     write_message(sink, reply)
+    # The whole process, Python's startup included: Firefox starts one for every request.
+    cpu, peak_mb = state.usage()
     log.info(
-        "[host] reply type=%s ok=%s %s in %.0fms",
+        "[host] reply type=%s ok=%s %s in %.0fms (process cpu %.0fms, peak %.0fMB)",
         message.get("type"),
         reply.get("ok"),
         reply.get("error") or reply.get("state") or "",
         (time.perf_counter() - t0) * 1000,
+        cpu * 1000,
+        peak_mb,
     )
     return 0

@@ -17,6 +17,8 @@ log = logging.getLogger("couchcast")
 ACTIVE = {"starting", "playing", "paused"}
 # Push updates arrive several times a second; the position on disk only needs to be roughly fresh.
 SAVE_EVERY_S = 3.0
+# A player can run for hours; this shows what it costs without turning on debug logging.
+USAGE_EVERY_S = 600.0
 
 
 def _is_ours(pid: int) -> bool:
@@ -207,11 +209,31 @@ def run(
             subprocess.run(["launchctl", "remove", launchd_label])
 
 
+async def _report_usage(session: Session, since: float) -> None:
+    last_cpu, _ = state.usage()
+    last_at = time.monotonic()
+    while True:
+        await asyncio.sleep(USAGE_EVERY_S)
+        cpu, peak_mb = state.usage()
+        now = time.monotonic()
+        log.info(
+            "[player] usage up=%s state=%s cpu=+%.1fs over %s (%.2f%% of a core) peak=%.0fMB",
+            state.elapsed(now - since),
+            session.record["state"],
+            cpu - last_cpu,
+            state.elapsed(now - last_at),
+            (cpu - last_cpu) / (now - last_at) * 100,
+            peak_mb,
+        )
+        last_cpu, last_at = cpu, now
+
+
 def _run(url: str, position: float, title: str, device: dict, video_id: str | None, rate: float) -> int:
     # Imported here, not at the top: pyatv is most of a messaging host's startup time, and the
     # host imports this module for status and stop, which never touch the TV.
     from . import airplay
 
+    t_start = time.monotonic()
     session = Session(title, device, position, video_id, rate)
     if sys.platform == "darwin":
         # Idle sleep would drop the AirPlay connection mid-video.
@@ -229,9 +251,14 @@ def _run(url: str, position: float, title: str, device: dict, video_id: str | No
         for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
             loop.add_signal_handler(sig, on_signal, sig)
         log.info("[player] started pid=%s parent=%s pgid=%s sid=%s", os.getpid(), os.getppid(), os.getpgid(0), os.getsid(0))
-        storage = await airplay.open_storage(loop)
-        conf = await airplay.find_tv(loop, storage, device)
-        await airplay.play(loop, storage, conf, url, position, session.started, on_status=session.on_status, rate=rate)
+        reporter = asyncio.ensure_future(_report_usage(session, t_start))
+        try:
+            storage = await airplay.open_storage(loop)
+            conf = await airplay.find_tv(loop, storage, device)
+            await airplay.play(loop, storage, conf, url, position, session.started, on_status=session.on_status, rate=rate)
+        finally:
+            reporter.cancel()
+            await asyncio.gather(reporter, return_exceptions=True)
 
     task = None
     loop = asyncio.new_event_loop()
@@ -254,4 +281,13 @@ def _run(url: str, position: float, title: str, device: dict, video_id: str | No
         return 1
     finally:
         loop.close()
-        log.info("[player] exiting pid=%s", os.getpid())
+        cpu, peak_mb = state.usage()
+        up = time.monotonic() - t_start
+        log.info(
+            "[player] exiting pid=%s after %s: cpu %.1fs (%.2f%% of a core), peak %.0fMB",
+            os.getpid(),
+            state.elapsed(up),
+            cpu,
+            cpu / up * 100 if up > 0 else 0,
+            peak_mb,
+        )

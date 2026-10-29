@@ -42,8 +42,13 @@ function createButton() {
   return button;
 }
 
+// A live list Firefox keeps current as the page changes. Searching the whole page instead cost
+// about 110us per check on a YouTube-sized DOM (e2e/measure_extension.py, 2026-10-29).
+const RIGHT_CONTROLS = document.getElementsByClassName('ytp-right-controls');
+
 function inject() {
-  for (const controls of document.querySelectorAll('.html5-video-player .ytp-right-controls')) {
+  for (const controls of RIGHT_CONTROLS) {
+    if (!controls.closest('.html5-video-player')) continue;
     const existing = controls.querySelector(`.${BUTTON_CLASS}`);
     if (existing && Number(existing.dataset.loadedAt ?? 0) >= LOADED_AT) continue;
     // Home-page hover previews reuse the player but aren't something you'd cast.
@@ -149,13 +154,31 @@ async function catchUpWithTv() {
 document.addEventListener('visibilitychange', catchUpWithTv);
 window.addEventListener('focus', catchUpWithTv);
 
+// Button upkeep runs whenever YouTube changes its page, at most once a frame. Its cost is
+// reported once a minute at debug level, so it can be checked on real YouTube pages.
+const upkeep = { checks: 0, ms: 0, since: performance.now() };
+
+function keepButton() {
+  const t0 = performance.now();
+  inject();
+  const now = performance.now();
+  upkeep.checks += 1;
+  upkeep.ms += now - t0;
+  if (now - upkeep.since >= 60_000) {
+    console.debug(
+      `[couchcast] button upkeep: ${upkeep.checks} checks in ${((now - upkeep.since) / 1000).toFixed(0)}s, ${upkeep.ms.toFixed(1)}ms total`,
+    );
+    Object.assign(upkeep, { checks: 0, ms: 0, since: now });
+  }
+}
+
 let scheduled = false;
 new MutationObserver(() => {
   if (scheduled) return;
   scheduled = true;
   requestAnimationFrame(() => {
     scheduled = false;
-    inject();
+    keepButton();
   });
 }).observe(document.documentElement, { childList: true, subtree: true });
 inject();

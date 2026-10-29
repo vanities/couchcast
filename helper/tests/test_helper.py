@@ -301,6 +301,71 @@ def test_a_video_left_paused_ends_the_session_once_the_limit_passes(monkeypatch)
     assert reason.startswith("left paused for") and cancelled
 
 
+def test_a_paused_session_closes_the_connection_to_the_tv(monkeypatch):
+    """What lets the TV and the Mac go is play() returning and closing pyatv's connection."""
+    import asyncio
+    from types import SimpleNamespace
+
+    from couchcast_helper import airplay
+
+    monkeypatch.setattr(airplay, "START_GRACE_S", 0.01)
+    monkeypatch.setattr(airplay, "HANGUP_POLL_S", 0.01)
+    monkeypatch.setattr(airplay, "PAUSED_LIMIT_S", 0.1)
+    monkeypatch.setattr(airplay, "_LIVE", dict(airplay._LIVE))
+    closed, requested, statuses = [], [], []
+
+    async def play_url(url, position=0):
+        requested.append((url, position))
+        await asyncio.sleep(3600)
+
+    async def connect(conf, loop, protocol=None, storage=None):
+        return SimpleNamespace(stream=SimpleNamespace(play_url=play_url), close=lambda: closed.append(True))
+
+    monkeypatch.setattr(airplay.pyatv, "connect", connect)
+
+    async def scenario():
+        loop = asyncio.get_running_loop()
+        session = asyncio.ensure_future(
+            airplay.play(loop, None, SimpleNamespace(name="TV"), "https://example.invalid/v.m3u8", 30, lambda: None, on_status=lambda *s: statuses.append(s))
+        )
+        await asyncio.sleep(0.05)
+        airplay._LIVE["on_event"]({"type": "playbackState", "params": {"playbackState": "paused"}})
+        await asyncio.wait_for(session, 1)
+
+    asyncio.run(scenario())
+    assert requested == [("https://example.invalid/v.m3u8", 30)]
+    assert statuses == [(None, None, "Paused")]
+    assert closed == [True], "the AirPlay connection is closed"
+    assert airplay._LIVE["on_event"] is None
+
+
+def test_a_running_player_logs_what_it_costs(monkeypatch, caplog, couchcast_home):
+    import asyncio
+    import logging
+    import time
+
+    from couchcast_helper import player
+
+    monkeypatch.setattr(player, "USAGE_EVERY_S", 0.02)
+    session = player.Session("t", {"name": "Bedroom"}, 0)
+
+    async def scenario():
+        reporter = asyncio.ensure_future(player._report_usage(session, time.monotonic()))
+        await asyncio.sleep(0.07)
+        reporter.cancel()
+
+    with caplog.at_level(logging.INFO, logger="couchcast"):
+        asyncio.run(scenario())
+    lines = [r.getMessage() for r in caplog.records if r.getMessage().startswith("[player] usage")]
+    assert lines and "state=starting" in lines[0] and "% of a core" in lines[0] and "peak=" in lines[0]
+
+
+def test_log_durations_read_well():
+    from couchcast_helper.state import elapsed
+
+    assert [elapsed(s) for s in (0.85, 42.31, 725, 10923)] == ["850ms", "42.3s", "12m05s", "3h02m"]
+
+
 def test_the_messaging_host_answers_without_loading_pyatv(tmp_path):
     """Firefox starts a host process for every ping, status and cast. pyatv was most of each
     call's quarter second of CPU (measured 2026-10-29), and only the player needs it."""

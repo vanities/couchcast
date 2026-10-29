@@ -29,6 +29,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.options import Options
+from selenium.webdriver.firefox.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -90,12 +91,16 @@ def forget_websites(profile: Path) -> None:
             path.unlink()
 
 
-def launch(extension: Path, headless: bool, ublock: bool, bidi: bool = False) -> webdriver.Firefox:
+def launch(
+    extension: Path, headless: bool, ublock: bool, bidi: bool = False, system_access: bool = False, prefs: dict | None = None
+) -> webdriver.Firefox:
+    """system_access lets the script switch to Firefox's chrome context (process stats, add-on
+    manager), which geckodriver only allows with --allow-system-access."""
     options = Options()
     options.binary_location = FIREFOX
     options.enable_bidi = bidi
     # media.volume_scale silences everything the test Firefox plays, ads included.
-    for key, value in {"media.autoplay.default": 0, "media.autoplay.blocking_policy": 0, "media.volume_scale": "0.0"}.items():
+    for key, value in {"media.autoplay.default": 0, "media.autoplay.blocking_policy": 0, "media.volume_scale": "0.0", **(prefs or {})}.items():
         options.set_preference(key, value)
     if headless:
         options.add_argument("-headless")
@@ -107,7 +112,8 @@ def launch(extension: Path, headless: bool, ublock: bool, bidi: bool = False) ->
         options.add_argument("-profile")
         options.add_argument(str(PROFILE))
     t0 = time.monotonic()
-    driver = webdriver.Firefox(options=options)
+    service = Service(service_args=["--allow-system-access"]) if system_access else None
+    driver = webdriver.Firefox(options=options, service=service)
     driver.set_window_size(1600, 1000)
     if ublock and not (PROFILE / "extensions" / f"{UBLOCK_ID}.xpi").exists():
         driver.install_addon(str(UBLOCK))

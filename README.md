@@ -111,6 +111,15 @@ TV. About 35 seconds, muted and headless.
 uv run --project e2e python e2e/fake_youtube.py            # or name scenarios: cast switch catch-up reload
 ```
 
+What the extension costs inside Firefox, on the same stand-in page with a YouTube-sized DOM that
+changes every frame: the tab's CPU with Couchcast on and off in alternating windows, the
+extension's own upkeep timer, and whether Firefox suspends the idle background page. About 8
+minutes.
+
+```bash
+uv run --project e2e python e2e/measure_extension.py       # --pairs 5 --seconds 65
+```
+
 End-to-end test: a real Firefox (driven by Selenium) with a pre-configured copy of the extension
 opens a YouTube video, clicks the in-player cast button, and checks what reached the helper and,
 from the TV's own events, that the session holds and the position carried over. It plays on the
@@ -127,8 +136,15 @@ bot check ("Sign in to confirm you're not a bot"), which then blocks the helper'
 same network too, so space runs out.
 
 Logs: the extension uses `[cast]`, `[lounge]`, `[options]` and `[couchcast]` prefixes (about:debugging,
-Inspect). The helper logs to `~/.config/couchcast/helper.log`; set `"debug": true` in
+Inspect). On YouTube pages it reports what keeping its button in place cost, once a minute at
+debug level. The helper logs to `~/.config/couchcast/helper.log`; set `"debug": true` in
 `~/.config/couchcast/config.json` (or `COUCHCAST_DEBUG=1`) to include pyatv's protocol traffic.
+Every helper call logs its process's CPU and peak memory, and a player logs both every 10 minutes
+and when it exits:
+
+```bash
+grep -E '\[player\] (usage|exiting)|\[host\] reply' ~/.config/couchcast/helper.log | tail
+```
 
 ## Publishing
 

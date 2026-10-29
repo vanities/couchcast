@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import resource
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -12,6 +13,27 @@ PLAYER = HOME / "player.json"
 LOG = HOME / "helper.log"
 
 log = logging.getLogger("couchcast")
+
+
+def usage() -> tuple[float, float]:
+    """CPU seconds this process has used so far, and its peak resident memory in MB."""
+    ru = resource.getrusage(resource.RUSAGE_SELF)
+    # ru_maxrss is in bytes on macOS and in kilobytes on Linux.
+    peak_mb = ru.ru_maxrss / 1e6 if sys.platform == "darwin" else ru.ru_maxrss / 1e3
+    return ru.ru_utime + ru.ru_stime, peak_mb
+
+
+def elapsed(seconds: float) -> str:
+    """850ms, 42.3s, 12m05s, 3h02m."""
+    if seconds < 10:
+        return f"{seconds * 1000:.0f}ms"
+    if seconds < 600:
+        return f"{seconds:.1f}s"
+    minutes, secs = divmod(int(seconds), 60)
+    if minutes < 60:
+        return f"{minutes}m{secs:02d}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h{minutes:02d}m"
 
 
 def debug_enabled() -> bool:

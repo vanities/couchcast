@@ -228,10 +228,11 @@ async def play(
         except asyncio.CancelledError:
             task.cancel()
             raise
+        took = state.elapsed(time.perf_counter() - t0)
         if reason:
-            log.info("[airplay] session on %s over after %s: %s", conf.name, ms(t0), reason)
+            log.info("[airplay] session on %s over after %s: %s", conf.name, took, reason)
         else:
-            log.info("[airplay] playback ended on %s after %s", conf.name, ms(t0))
+            log.info("[airplay] playback ended on %s after %s", conf.name, took)
     finally:
         _LIVE.update(protocol=None, on_event=None)
         atv.close()
