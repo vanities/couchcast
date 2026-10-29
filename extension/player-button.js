@@ -72,7 +72,7 @@ async function onClick(event) {
   const t0 = performance.now();
   console.info('[couchcast] cast clicked', location.href);
   try {
-    const reply = await browser.runtime.sendMessage({ type: 'cast-from-player' });
+    const reply = await browser.runtime.sendMessage({ type: 'cast-from-player', url: location.href });
     console.info('[couchcast] cast reply', reply, `${Math.round(performance.now() - t0)}ms`);
     if (reply?.ok) showTip(button, `Playing on ${reply.tvName}`, 'ok', 3500);
     else showTip(button, reply?.message ?? 'Cast failed.', 'error', 6000);

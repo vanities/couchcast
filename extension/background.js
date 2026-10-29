@@ -61,8 +61,11 @@ browser.contextMenus?.onClicked.addListener((info, tab) => {
 browser.runtime.onMessage.addListener((message, sender) => {
   log.debug(`message type=${message?.type} tab=${sender.tab?.id} frame=${sender.frameId}`);
   if (message?.type === 'cast-from-player') {
+    // Not sender.url: Firefox keeps the URL from the content script's first message, and YouTube
+    // switches videos without loading a new page, so that can be a video from minutes ago.
+    log.debug(`cast-from-player page=${message.url} sender.url=${sender.url}`);
     // The in-player button shows the outcome itself, so skip the system notification.
-    return castFromTab(sender.tab, { frameId: sender.frameId, fromUrl: parseYouTubeUrl(sender.url), notify: false });
+    return castFromTab(sender.tab, { frameId: sender.frameId, fromUrl: parseYouTubeUrl(message.url), notify: false });
   }
   if (message?.type === 'player-label') return playerLabel();
   if (message?.type === 'tv-position') return tvPosition(message.videoId);
@@ -94,10 +97,13 @@ async function playerLabel() {
 }
 
 async function castFromTab(tab, { frameId = 0, fromUrl = parseYouTubeUrl(tab.url), notify = true } = {}) {
-  log.info(`cast requested tab=${tab?.id} frame=${frameId} url=${tab?.url}`);
+  log.info(`cast requested tab=${tab?.id} frame=${frameId} url=${tab?.url} urlVideo=${fromUrl?.videoId ?? '-'}`);
   const player = await readPlayer(tab.id, frameId);
   const videoId = fromUrl?.videoId ?? player?.videoId;
   if (!videoId) return fail(tab, 'Open a YouTube video first, then cast.', notify);
+  if (player?.videoId && player.videoId !== videoId) {
+    log.warn(`the page is on video=${videoId} but its player has video=${player.videoId}; casting the page's`);
+  }
 
   // Only trust the player's position when it is showing the same video as the URL (a Shorts
   // page or the miniplayer can hold a stale or different one).
