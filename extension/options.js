@@ -7,12 +7,14 @@ import {
   hasYouTubeAccess,
   loadMode,
   loadPauseAfterCast,
+  loadUseBrowserLogin,
   loadState,
   removeScreen,
   requestHelperAccess,
   requestYouTubeAccess,
   saveMode,
   savePauseAfterCast,
+  saveUseBrowserLogin,
   saveScreen,
   setDefaultScreen,
 } from './lib/store.js';
@@ -149,9 +151,16 @@ $('#pause-after-cast').addEventListener('change', async (event) => {
   log.info(`pause after cast=${event.target.checked}`);
 });
 
+$('#use-browser-login').addEventListener('change', async (event) => {
+  await saveUseBrowserLogin(event.target.checked);
+  log.info(`use browser login on bot check=${event.target.checked}`);
+});
+
 async function renderMode() {
   const mode = await loadMode();
   $('#pause-after-cast').checked = await loadPauseAfterCast();
+  $('#use-browser-login').checked = await loadUseBrowserLogin();
+  $('#browser-login-setting').hidden = mode !== 'direct';
   log.info(`settings opened mode=${mode}`);
   for (const input of document.querySelectorAll('input[name=mode]')) input.checked = input.value === mode;
   $('#youtube-app-settings').hidden = mode !== 'youtube-app';

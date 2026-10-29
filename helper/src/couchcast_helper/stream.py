@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 from dataclasses import dataclass
 
@@ -51,20 +52,54 @@ def pick_stream(info: dict) -> Stream | None:
     return None
 
 
-def resolve(page_url: str) -> Stream:
+BOT_CHECK_HELP = (
+    "YouTube is asking this network to prove it isn't a bot, so it won't hand over the video. "
+    "Try again later, or turn on \"Use my Firefox YouTube login\" in Couchcast's settings."
+)
+
+
+def is_bot_check(error: Exception) -> bool:
+    """YouTube's "Sign in to confirm you're not a bot" wall (its apostrophe is curly)."""
+    return "not a bot" in str(error)
+
+
+def reason(error: Exception) -> str:
+    """yt-dlp's message without its "ERROR: [youtube] <id>: " prefix and the help it appends."""
+    text = re.sub(r"^ERROR: (\[[^\]]+\] [\w-]+: )?", "", str(error))
+    return re.split(r" Use --| See |https?://", text)[0].strip()
+
+
+def _extract(page_url: str, options: dict) -> dict:
     from yt_dlp import YoutubeDL
+
+    with YoutubeDL(options) as ydl:
+        return ydl.extract_info(page_url, download=False) or {}
+
+
+def resolve(page_url: str, browser_login: bool = False) -> Stream:
+    """browser_login: when YouTube's bot check blocks the anonymous request, ask again with the
+    YouTube cookies of the most recently used Firefox profile."""
     from yt_dlp.utils import DownloadError
 
     t0 = time.perf_counter()
-    log.info("[stream] resolve start url=%s", page_url)
+    log.info("[stream] resolve start url=%s browser_login=%s", page_url, browser_login)
     options = {"quiet": True, "no_warnings": True, "noplaylist": True, "skip_download": True}
     try:
-        with YoutubeDL(options) as ydl:
-            info = ydl.extract_info(page_url, download=False)
+        info = _extract(page_url, options)
     except DownloadError as error:
         log.error("[stream] yt-dlp failed url=%s in %.0fms: %s", page_url, (time.perf_counter() - t0) * 1000, error)
-        raise StreamError(f"YouTube wouldn't give up this video's stream: {error}") from error
-    stream = pick_stream(info or {})
+        if not is_bot_check(error):
+            raise StreamError(f"YouTube wouldn't give up this video's stream: {reason(error)}") from error
+        if not browser_login:
+            raise StreamError(BOT_CHECK_HELP) from error
+        log.warning("[stream] YouTube's bot check is up; asking again with Firefox's YouTube login")
+        try:
+            info = _extract(page_url, {**options, "cookiesfrombrowser": ("firefox",)})
+        except DownloadError as retry_error:
+            log.error("[stream] yt-dlp failed with Firefox's login in %.0fms: %s", (time.perf_counter() - t0) * 1000, retry_error)
+            raise StreamError(f"YouTube still refused with your Firefox YouTube login: {reason(retry_error)}") from retry_error
+        log.info("[stream] Firefox's YouTube login got past the bot check")
+    stream = pick_stream(info)
     if stream is None:
         raise StreamError("No stream the Apple TV can play was found for this video.")
     log.info(

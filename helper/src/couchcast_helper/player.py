@@ -102,6 +102,14 @@ class Session:
         if changed or time.monotonic() - self._saved_at >= SAVE_EVERY_S:
             self._save()
 
+    def started(self) -> None:
+        """play_url has run for a few seconds without failing. The TV's own events say more, so
+        this only moves a session the TV hasn't reported on yet."""
+        if self.record["state"] == "starting":
+            self.mark("playing")
+        else:
+            log.debug("[player] start signal ignored; the TV already reported %s", self.record["state"])
+
     def on_status(self, position: float | None, total: float | None, device_state: str | None) -> None:
         """Push update from the TV. "Seeking" and "Loading" keep the last steady state."""
         new_state = {"Playing": "playing", "Paused": "paused"}.get(device_state or "", self.record["state"])
@@ -219,9 +227,7 @@ def _run(url: str, position: float, title: str, device: dict, video_id: str | No
         log.info("[player] started pid=%s parent=%s pgid=%s sid=%s", os.getpid(), os.getppid(), os.getpgid(0), os.getsid(0))
         storage = await airplay.open_storage(loop)
         conf = await airplay.find_tv(loop, storage, device)
-        await airplay.play(
-            loop, storage, conf, url, position, lambda: session.mark("playing"), on_status=session.on_status, rate=rate
-        )
+        await airplay.play(loop, storage, conf, url, position, session.started, on_status=session.on_status, rate=rate)
 
     task = None
     loop = asyncio.new_event_loop()
@@ -234,7 +240,8 @@ def _run(url: str, position: float, title: str, device: dict, video_id: str | No
         if signals_seen:
             log.info("[player] stopped after %s", "+".join(signals_seen))
         else:
-            log.warning("[player] playback was cancelled from inside pyatv", exc_info=True)
+            # pyatv closes everything when the TV stops answering its remote-control heartbeat.
+            log.warning("[player] pyatv closed the connection and cancelled playback; the TV stopped answering", exc_info=True)
         session.mark("stopped")
         return 0
     except Exception as error:

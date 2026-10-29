@@ -211,3 +211,137 @@ def test_host_wrapper_answers_ping_under_firefoxs_bare_environment(tmp_path):
     reply = json.loads(proc.stdout[4 : 4 + length])
     assert reply["ok"] is True and reply["device"] is None
     assert len(proc.stdout) == 4 + length, "nothing but the reply may reach stdout"
+
+
+def fake_airplay_session():
+    from types import SimpleNamespace
+
+    return SimpleNamespace(rtsp=SimpleNamespace(connection=SimpleNamespace(transport=object())), event_transport=None)
+
+
+def test_the_session_ends_when_the_tv_hangs_up_without_saying_stopped(monkeypatch):
+    """Backing out of the video on the TV closes the stream connection and nothing else; pyatv's
+    play_url would keep waiting for a "stopped" event."""
+    import asyncio
+    import time
+
+    from couchcast_helper import airplay
+
+    monkeypatch.setattr(airplay, "START_GRACE_S", 0.05)
+    monkeypatch.setattr(airplay, "HANGUP_POLL_S", 0.01)
+    session = fake_airplay_session()
+    monkeypatch.setitem(airplay._LIVE, "protocol", session)
+    started = []
+
+    async def scenario():
+        play_url = asyncio.ensure_future(asyncio.sleep(3600))
+        supervisor = asyncio.ensure_future(airplay._supervise(play_url, lambda: started.append(True), "TV", time.perf_counter()))
+        await asyncio.sleep(0.15)
+        assert started == [True] and not supervisor.done(), "still playing while the connection is up"
+        session.rtsp.connection.transport = None
+        return await asyncio.wait_for(supervisor, 1), play_url.cancelled()
+
+    assert asyncio.run(scenario()) == ("the stream connection closed", True)
+
+
+def test_a_hangup_before_the_video_starts_is_a_failure(monkeypatch):
+    import asyncio
+    import time
+
+    from couchcast_helper import airplay
+
+    monkeypatch.setattr(airplay, "HANGUP_POLL_S", 0.01)
+    session = fake_airplay_session()
+    session.event_transport = type("Closed", (), {"is_closing": lambda self: True})()
+    monkeypatch.setitem(airplay._LIVE, "protocol", session)
+
+    async def scenario():
+        await airplay._supervise(asyncio.ensure_future(asyncio.sleep(3600)), lambda: None, "TV", time.perf_counter())
+
+    with pytest.raises(RuntimeError, match="hung up before the video started"):
+        asyncio.run(scenario())
+
+
+def test_the_start_signal_keeps_a_pause_the_tv_already_reported(couchcast_home):
+    from couchcast_helper import player
+
+    session = player.Session("t", {"name": "Bedroom"}, 0)
+    session.on_status(None, None, "Paused")
+    session.started()
+    assert couchcast_home.read_json(couchcast_home.PLAYER)["state"] == "paused"
+
+
+def test_cast_takes_only_a_video_id_and_builds_the_youtube_url_itself(couchcast_home, monkeypatch):
+    from couchcast_helper import player
+
+    couchcast_home.write_json(couchcast_home.CONFIG, {"device": {"name": "Bedroom", "identifier": "x"}})
+    resolved, spawned = [], []
+
+    def fake_resolve(url, browser_login=False):
+        resolved.append((url, browser_login))
+        return stream.Stream("https://m/x.m3u8", "hls", "t", False)
+
+    monkeypatch.setattr(stream, "resolve", fake_resolve)
+    monkeypatch.setattr(player, "spawn", lambda *args, **kwargs: spawned.append((args, kwargs)) or 4242)
+    monkeypatch.setattr(player, "wait_for_start", lambda pid: {"state": "playing"})
+
+    refused = native.handle({"type": "cast", "videoId": "x; rm -rf ~", "url": "file:///etc/passwd"})
+    assert refused["ok"] is False and resolved == [], "nothing reached yt-dlp"
+
+    reply = native.handle(
+        {"type": "cast", "videoId": "aqz-KE-bpKQ", "url": "https://evil.example/", "startSeconds": "nan", "rate": 99, "useBrowserLogin": True}
+    )
+    assert reply["ok"] is True
+    assert resolved == [("https://www.youtube.com/watch?v=aqz-KE-bpKQ", True)]
+    args, kwargs = spawned[0]
+    assert (args[1], kwargs["rate"], kwargs["video_id"]) == (0.0, 1.0, "aqz-KE-bpKQ"), "nonsense start and speed fall back to defaults"
+
+
+BOT_CHECK = (
+    "ERROR: [youtube] aqz-KE-bpKQ: Sign in to confirm you’re not a bot. This helps protect our community. "
+    "Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ"
+)
+
+
+def test_bot_check_gets_a_plain_message_and_uses_the_firefox_login_only_when_allowed(monkeypatch):
+    from yt_dlp.utils import DownloadError
+
+    cookie_sources = []
+
+    def fake_extract(url, options):
+        cookie_sources.append(options.get("cookiesfrombrowser"))
+        if not options.get("cookiesfrombrowser"):
+            raise DownloadError(BOT_CHECK)
+        return {"title": "t", "formats": [HLS]}
+
+    monkeypatch.setattr(stream, "_extract", fake_extract)
+    with pytest.raises(stream.StreamError, match="prove it isn't a bot"):
+        stream.resolve("https://www.youtube.com/watch?v=aqz-KE-bpKQ")
+    assert cookie_sources == [None], "no cookies without the setting"
+
+    cookie_sources.clear()
+    assert stream.resolve("https://www.youtube.com/watch?v=aqz-KE-bpKQ", browser_login=True).kind == "hls"
+    assert cookie_sources == [None, ("firefox",)], "anonymous first, Firefox's login only after the bot check"
+
+
+def test_other_yt_dlp_errors_lose_the_prefix_and_the_help_links():
+    assert stream.reason(Exception(BOT_CHECK)) == "Sign in to confirm you’re not a bot. This helps protect our community."
+    assert stream.reason(Exception("ERROR: [youtube] abcdefghijk: Video unavailable. This video is private")) == (
+        "Video unavailable. This video is private"
+    )
+
+
+def test_log_files_stay_owner_only_across_rotation(tmp_path):
+    import logging
+
+    from couchcast_helper import state
+
+    handler = state.PrivateRotatingFileHandler(tmp_path / "helper.log", maxBytes=200, backupCount=2)
+    logger = logging.getLogger("couchcast-rotation-test")
+    logger.addHandler(handler)
+    logger.propagate = False
+    for i in range(20):
+        logger.warning("line %d %s", i, "x" * 50)
+    handler.close()
+    modes = {path.name: oct(path.stat().st_mode & 0o777) for path in tmp_path.iterdir()}
+    assert modes == {"helper.log": "0o600", "helper.log.1": "0o600", "helper.log.2": "0o600"}

@@ -2,6 +2,8 @@
 
 import json
 import logging
+import math
+import re
 import struct
 import sys
 import time
@@ -10,6 +12,8 @@ from typing import BinaryIO
 from . import __version__, player, state, stream
 
 log = logging.getLogger("couchcast")
+
+VIDEO_ID = re.compile(r"[A-Za-z0-9_-]{11}")
 
 
 def read_message(source: BinaryIO) -> dict | None:
@@ -56,17 +60,33 @@ def handle(message: dict) -> dict:
 
     if not device:
         return {"ok": False, "error": "No Apple TV paired yet. Run: couchcast-helper pair"}
+    video_id = message.get("videoId")
+    # yt-dlp reads 1,000+ sites and any URL, so the helper builds the YouTube URL itself.
+    if not isinstance(video_id, str) or not VIDEO_ID.fullmatch(video_id):
+        log.warning("[host] cast refused: videoId=%.40r is not a YouTube video id", video_id)
+        return {"ok": False, "error": "That isn't a YouTube video."}
     try:
-        resolved = stream.resolve(message["url"])
+        resolved = stream.resolve(f"https://www.youtube.com/watch?v={video_id}", browser_login=message.get("useBrowserLogin") is True)
     except stream.StreamError as error:
         return {"ok": False, "error": str(error)}
-    position = 0.0 if resolved.is_live else float(message.get("startSeconds") or 0)
-    rate = float(message.get("rate") or 1.0)
-    pid = player.spawn(resolved.url, position, resolved.title, device, video_id=message.get("videoId"), rate=rate)
+    position = 0.0 if resolved.is_live else _bounded(message.get("startSeconds"), 0.0, 0.0, 7 * 24 * 3600)
+    rate = _bounded(message.get("rate"), 1.0, 0.25, 4.0)
+    pid = player.spawn(resolved.url, position, resolved.title, device, video_id=video_id, rate=rate)
     outcome = player.wait_for_start(pid)
     if outcome.get("state") == "error":
         return {"ok": False, "error": f"AirPlay failed: {outcome.get('error')}"}
     return {"ok": True, "tvName": device["name"], "title": resolved.title, "state": outcome.get("state")}
+
+
+def _bounded(value, default: float, low: float, high: float) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    if math.isfinite(number) and low <= number <= high:
+        return number
+    log.warning("[host] %r is outside %s..%s; using %s", value, low, high, default)
+    return default
 
 
 def serve() -> int:
@@ -78,7 +98,7 @@ def serve() -> int:
     if message is None:
         log.warning("[host] stdin closed before a message arrived")
         return 1
-    details = {k: message[k] for k in ("url", "videoId", "startSeconds", "rate") if k in message}
+    details = {k: message[k] for k in ("videoId", "startSeconds", "rate", "useBrowserLogin") if k in message}
     log.info("[host] request type=%s %s", message.get("type"), details or "")
     try:
         reply = handle(message)

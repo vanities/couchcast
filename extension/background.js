@@ -8,6 +8,7 @@ import {
   loadMode,
   loadPauseAfterCast,
   loadState,
+  loadUseBrowserLogin,
   saveScreen,
 } from './lib/store.js';
 import { parseYouTubeUrl } from './lib/youtube-url.js';
@@ -167,10 +168,10 @@ async function castDirect(video, tab, notify) {
   try {
     reply = await browser.runtime.sendNativeMessage(HELPER, {
       type: 'cast',
-      url: `https://www.youtube.com/watch?v=${video.videoId}`,
       videoId: video.videoId,
       startSeconds: video.startSeconds,
       rate: video.rate,
+      useBrowserLogin: await loadUseBrowserLogin(),
     });
   } catch (error) {
     log.error(`helper unreachable in ${since(t0)}: ${error.message}`);

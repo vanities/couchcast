@@ -20,15 +20,26 @@ def debug_enabled() -> bool:
     return os.environ.get("COUCHCAST_DEBUG") == "1" or bool(read_json(CONFIG).get("debug"))
 
 
+class PrivateRotatingFileHandler(RotatingFileHandler):
+    """The log names videos and holds stream URLs. RotatingFileHandler opens each fresh file with
+    the default umask (world-readable), so lock every file it opens."""
+
+    def _open(self):
+        stream = super()._open()
+        os.chmod(self.baseFilename, 0o600)
+        return stream
+
+
 def setup_logging(verbose: bool = False, interactive: bool = True, echo_stderr: bool = False) -> None:
     """Always log to the file. Interactive commands keep the terminal for the UI and only echo
     logs there with --verbose. The Firefox host also echoes to stderr, which Firefox shows in
     its browser console; a background player's stderr already goes to the log file."""
     HOME.mkdir(parents=True, exist_ok=True)
     debug = debug_enabled()
-    file_handler = RotatingFileHandler(LOG, maxBytes=20_000_000, backupCount=2)
+    file_handler = PrivateRotatingFileHandler(LOG, maxBytes=20_000_000, backupCount=2)
     file_handler.setFormatter(logging.Formatter("%(asctime)s %(process)d %(levelname)s %(message)s"))
-    lock_down(LOG)
+    for backup in (LOG.with_name(f"{LOG.name}.1"), LOG.with_name(f"{LOG.name}.2")):
+        lock_down(backup)
     handlers: list[logging.Handler] = [file_handler]
     if echo_stderr:
         stderr_handler = logging.StreamHandler(sys.stderr)

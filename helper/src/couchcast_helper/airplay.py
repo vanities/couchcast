@@ -27,6 +27,10 @@ _ORIGINAL_SEND = airplayv2.AirPlayV2._send_url_command
 _ORIGINAL_EVENT = airplayv2.AirPlayV2._handle_event
 _LIVE: dict = {"rate": 1.0, "position": 0.0, "protocol": None, "on_event": None}
 
+# play_url gives no start signal; still running this long without an error is the signal.
+START_GRACE_S = 4.0
+HANGUP_POLL_S = 1.0
+
 
 def cmtime(seconds: float) -> dict:
     return {"value": int(round(seconds * 1000)), "timescale": 1000, "flags": 1, "epoch": 0}
@@ -206,14 +210,51 @@ async def play(
     try:
         log.info("[airplay] play_url at=%.0fs rate=%sx", position, rate)
         task = asyncio.ensure_future(atv.stream.play_url(url, position=position))
-        # play_url never returns while the video plays, so "still running after a few seconds
-        # without an error" is the only start signal it gives.
-        done, _ = await asyncio.wait({task}, timeout=4)
-        if not done:
-            log.info("[airplay] playback running on %s (%s after connect)", conf.name, ms(t0))
-            on_started()
-        await task
-        log.info("[airplay] playback ended on %s after %s", conf.name, ms(t0))
+        try:
+            hangup = await _supervise(task, on_started, conf.name, t0)
+        except asyncio.CancelledError:
+            task.cancel()
+            raise
+        if hangup:
+            log.info("[airplay] %s ended the session after %s: %s", conf.name, ms(t0), hangup)
+        else:
+            log.info("[airplay] playback ended on %s after %s", conf.name, ms(t0))
     finally:
         _LIVE.update(protocol=None, on_event=None)
         atv.close()
+
+
+async def _supervise(task: asyncio.Future, on_started: Callable[[], None], tv_name: str, t0: float) -> str | None:
+    """Waits for play_url, which returns only when the TV reports the video stopped. Returns why,
+    when the TV hung up without that report instead."""
+    started = False
+    supervising_since = time.perf_counter()
+    while True:
+        done, _ = await asyncio.wait({task}, timeout=HANGUP_POLL_S)
+        if done:
+            task.result()
+            return None
+        if not started and time.perf_counter() - supervising_since >= START_GRACE_S:
+            started = True
+            log.info("[airplay] playback running on %s (%s after connect)", tv_name, ms(t0))
+            on_started()
+        hangup = hung_up(_LIVE["protocol"])
+        if hangup:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            if not started:
+                raise RuntimeError(f"The Apple TV hung up before the video started ({hangup}).")
+            return hangup
+
+
+def hung_up(protocol) -> str | None:
+    """Backing out of the video on the TV closes the stream's connection and its event channel
+    without a "stopped" event, and pyatv waits for that event forever. Only the remote-control
+    heartbeat kept such a player alive, for 28 minutes once (2026-10-28)."""
+    if protocol is None:
+        return None
+    if protocol.rtsp.connection.transport is None:
+        return "the stream connection closed"
+    if protocol.event_transport is not None and protocol.event_transport.is_closing():
+        return "the event channel closed"
+    return None

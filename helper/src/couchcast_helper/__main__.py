@@ -251,7 +251,7 @@ async def _play_here(device: dict, resolved: stream.Stream, position: float, rat
         task = progress.add_task(f"[muted]Starting on {device['name']}…[/]", total=None, clock="")
 
         def on_started() -> None:
-            session.mark("playing")
+            session.started()
             progress.update(task, description=f"[accent]▶[/] Playing on [key]{device['name']}[/]")
 
         def on_status(pos: float | None, total: float | None, state_name: str | None) -> None:

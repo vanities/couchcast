@@ -139,6 +139,7 @@ kbd {
   padding: 10px 0;
   cursor: pointer;
 }
+.choice[hidden] { display: none; }
 .choice input { margin-top: 4px; accent-color: var(--accent); }
 .choice strong { display: block; }
 .choice .muted { display: block; font-size: 14px; }

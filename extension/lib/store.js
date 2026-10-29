@@ -1,5 +1,8 @@
 // storage.local layout:
 //   mode             "youtube-app" (Lounge, no helper) or "direct" (helper + AirPlay, no ads)
+//   pauseAfterCast   pause the page's video once the TV has it (default on)
+//   useBrowserLogin  no-ads mode: when YouTube's bot check blocks the helper, let it retry
+//                    with Firefox's YouTube cookies (default off)
 //   deviceId         id this browser presents to TVs (one per install)
 //   screens          [{ screenId, name, loungeToken, expiration, linkedAt, tv }]
 //   defaultScreenId  which screen the toolbar button casts to
@@ -24,6 +27,15 @@ export async function loadPauseAfterCast() {
 
 export async function savePauseAfterCast(pauseAfterCast) {
   await browser.storage.local.set({ pauseAfterCast });
+}
+
+export async function loadUseBrowserLogin() {
+  const { useBrowserLogin } = await browser.storage.local.get('useBrowserLogin');
+  return useBrowserLogin === true;
+}
+
+export async function saveUseBrowserLogin(useBrowserLogin) {
+  await browser.storage.local.set({ useBrowserLogin });
 }
 
 // Optional, so people who only use the YouTube-app mode never see the "communicate with other
