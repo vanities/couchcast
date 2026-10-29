@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Couchcast",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Cast the YouTube video you're watching from Firefox to your TV. No ads on Apple TV with the free helper app, or use the TV's YouTube app.",
   "icons": {
     "48": "icons/icon.svg",
@@ -69,5 +69,6 @@
         ]
       }
     }
-  }
+  },
+  "homepage_url": "https://github.com/vanities/couchcast"
 }

@@ -1,0 +1,30 @@
+{
+  "slug": "couchcast",
+  "default_locale": "en-US",
+  "summary": {
+    "en-US": "Cast the YouTube video you're watching from Firefox to your TV. No ads on Apple TV with the free helper app, or use the TV's YouTube app."
+  },
+  "description": {
+    "en-US": "Firefox has no Cast button. Couchcast adds one to YouTube's own player controls, next to the settings gear, plus a toolbar button, a right-click item and Alt+Shift+Y. The TV picks up where you are, at the speed you're watching, and the video pauses in Firefox.\n\n**Two ways to play**\n\n- **No ads, straight to Apple TV.** A small, free, open-source helper app on your computer gets the video's stream from YouTube, like any player does, and hands it to your Apple TV over AirPlay, so YouTube's ads never play. Up to 1080p60. The helper runs on macOS and takes a few commands to set up: https://github.com/vanities/couchcast#setup (tested with an Apple TV 4K on tvOS 27).\n- **YouTube app on the TV.** Works with any TV whose YouTube app has \"Link with TV code\", with nothing else to install. The TV's YouTube app shows its usual ads unless you have Premium. This mode is brand new; please report how it works with your TV.\n\n**Back at the computer:** return to the tab while the video plays on the TV, and the paused video in Firefox jumps to where the TV is.\n\n**Privacy:** no analytics and no server of its own. Casting sends the video, position and speed to the helper on your computer (no-ads mode) or to YouTube (YouTube-app mode). Details: https://github.com/vanities/couchcast#privacy\n\nOpen source (GPL-3.0): https://github.com/vanities/couchcast\nProblems or ideas: https://github.com/vanities/couchcast/issues"
+  },
+  "categories": {
+    "firefox": [
+      "photos-music-videos"
+    ]
+  },
+  "homepage": {
+    "en-US": "https://github.com/vanities/couchcast"
+  },
+  "is_experimental": true,
+  "requires_payment": false,
+  "version": {
+    "license": "GPL-3.0-only",
+    "compatibility": [
+      "firefox"
+    ],
+    "release_notes": {
+      "en-US": "First public release."
+    },
+    "approval_notes": "Couchcast casts a YouTube video to a TV in one of two modes, chosen on its settings page.\n\n1. \"YouTube app on the TV\" (the default): talks to YouTube's Lounge API (www.youtube.com/api/lounge), the \"Link with TV code\" protocol the YouTube phone app uses, with credentials: 'omit'. Testing needs a TV with the YouTube app (Settings > Link with TV code).\n2. \"No ads, straight to Apple TV\": uses native messaging, an optional permission requested only when the user picks this mode, to talk to the open-source helper app in the same repository: https://github.com/vanities/couchcast/tree/main/helper. The extension sends it only {type, videoId, startSeconds, rate, useBrowserLogin}. The helper resolves the stream with yt-dlp and plays it on an Apple TV over AirPlay with pyatv. Testing needs an Apple TV.\n\nThere is no remote code and no build step: the submitted files are the source (https://github.com/vanities/couchcast/tree/main/extension). data_collection_permissions declares browsingActivity because a cast sends the current video's id out of the browser (to the helper, or to YouTube). Tests: `bun test` (unit) and `e2e/fake_youtube.py` (a real Firefox against a stand-in YouTube page)."
+  }
+}

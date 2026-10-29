@@ -35,30 +35,35 @@ Firefox (Couchcast) --HTTPS--> www.youtube.com/api/lounge <--- YouTube app on th
 
 ## Setup
 
-1. Install the extension. Couchcast isn't listed on addons.mozilla.org yet; until it is, install the
-   Mozilla-signed `couchcast-<version>.xpi` (see [Publishing](#publishing)): drag it into a Firefox
-   window, or open `about:addons`, click the gear, and choose **Install Add-on From File**. Its
-   settings page opens on first install. Pick how it plays.
+1. Install the extension (desktop Firefox 140 or newer):
+   - from [addons.mozilla.org](https://addons.mozilla.org/firefox/addon/couchcast/), once Mozilla's
+     review is done, or
+   - from the [latest release](https://github.com/vanities/couchcast/releases/latest): download
+     `couchcast-<version>.xpi` (signed by Mozilla) and drag it into a Firefox window.
+
+   Its settings page opens on first install. Pick how it plays.
 2. **No-ads mode:** install the helper app (needs [uv](https://docs.astral.sh/uv/) and
    [deno](https://deno.com), which yt-dlp uses for YouTube's player challenges), then pair it:
 
    ```bash
-   uv tool install ./helper     # from a clone of this repo; adds the couchcast-helper command
+   uv tool install "git+https://github.com/vanities/couchcast#subdirectory=helper"
    couchcast-helper pair        # a PIN appears on the Apple TV
    couchcast-helper install     # registers the helper with Firefox
    couchcast-helper status      # check that everything is connected
    ```
 
    From a clone you can also run it in place: `cd helper && uv sync && uv run couchcast-helper
-   install`. Either way, `install` points Firefox at the Python it ran with.
+   install`, or `uv tool install ./helper`. Either way, `install` points Firefox at the Python it
+   ran with.
 
 3. **YouTube-app mode:** on the TV, open YouTube, then **Settings > Link with TV code**, and type
    that code into Couchcast's settings page.
 
 ## Privacy
 
-Couchcast only sends anything when you cast, and only what that cast needs. Firefox's install
-prompt lists this as **browsing activity**, Mozilla's category for the address of a page you're on.
+Couchcast has no analytics and no server of its own; it talks to YouTube or the helper only to do
+what you ask. Firefox's install prompt lists this as **browsing activity**, Mozilla's category for
+the address of a page you're on. The full policy is in [amo/privacy-policy.md](amo/privacy-policy.md).
 
 - No-ads mode: the extension hands the video id, position and speed to the helper on your
   computer. The helper asks YouTube for the video's stream (like any player does) and sends that
@@ -125,10 +130,11 @@ addons.mozilla.org (AMO) in one of two channels:
 
 - **Unlisted:** Mozilla checks and signs the extension for you to hand out yourself. It isn't
   public. `bun run sign` does this and saves the signed `.xpi` in `web-ext-artifacts/`.
-- **Listed:** a public page on addons.mozilla.org, reviewed by Mozilla, with automatic updates.
-  `bun run sign listed` submits it. The first listed version also needs `amo/listing.json`
-  (categories, summary and license); mark it desktop-only, since Couchcast doesn't support Firefox
-  for Android.
+- **Listed:** the public page, [addons.mozilla.org/firefox/addon/couchcast](https://addons.mozilla.org/firefox/addon/couchcast/),
+  reviewed by Mozilla, with automatic updates. `bun run sign listed` submits a version. The
+  listing's text, category, license and reviewer notes are in `amo/listing.json` (desktop only,
+  since Couchcast doesn't support Firefox for Android), and its privacy policy is
+  `amo/privacy-policy.md`.
 
 One-time setup:
 
