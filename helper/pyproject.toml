@@ -1,6 +1,6 @@
 [project]
 name = "couchcast-helper"
-version = "0.1.0"
+version = "0.1.1"
 description = "Plays YouTube on an Apple TV over AirPlay, without ads, for the Couchcast Firefox extension"
 license = "GPL-3.0-only"
 requires-python = ">=3.12"
