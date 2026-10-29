@@ -7,6 +7,11 @@ in Firefox.
 
 Chrome has a Cast button and Safari has AirPlay. Firefox has neither, so Couchcast fills the gap.
 
+**Get it:** [Couchcast on addons.mozilla.org](https://addons.mozilla.org/firefox/addon/couchcast/)
+(submitted for Mozilla's review; the page goes live once it's approved), or the signed `.xpi` from the
+[latest release](https://github.com/vanities/couchcast/releases/latest). Source:
+[github.com/vanities/couchcast](https://github.com/vanities/couchcast).
+
 ## Two ways to play
 
 | | No ads, straight to Apple TV | YouTube app on the TV |
