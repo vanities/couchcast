@@ -69,7 +69,7 @@ section {
 
 form { display: flex; gap: 8px; flex-wrap: wrap; }
 
-input {
+form input {
   flex: 1 1 220px;
   min-width: 0;
   padding: 9px 12px;
