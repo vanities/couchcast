@@ -13,7 +13,10 @@
     ]
   },
   "homepage": {
-    "en-US": "https://github.com/vanities/couchcast"
+    "en-US": "https://am2.biz/couchcast"
+  },
+  "support_url": {
+    "en-US": "https://am2.biz/couchcast/support"
   },
   "is_experimental": true,
   "requires_payment": false,

@@ -2,6 +2,7 @@
 privacy policy, the icon and the screenshots. Uses the API key in .dev/amo.env.
 
     uv run --with requests python scripts/amo_listing.py status
+    uv run --with requests python scripts/amo_listing.py links         # homepage + support site from amo/listing.json
     uv run --with requests python scripts/amo_listing.py privacy       # amo/privacy-policy.md
     uv run --with requests python scripts/amo_listing.py icon          # amo/icon-128.png
     uv run --with requests python scripts/amo_listing.py screenshots   # amo/screenshots/, replacing the old ones
@@ -84,11 +85,18 @@ def status() -> None:
         f"public_page={addon['url']} current_version={current.get('version')} "
         f"icon={'custom' if addon.get('icon_url') and 'default' not in addon['icon_url'] else 'default'} "
         f"previews={len(addon.get('previews') or [])} categories={addon.get('categories')} "
-        f"homepage={(addon.get('homepage') or {}).get('url')}"
+        f"homepage={(addon.get('homepage') or {}).get('url')} support={(addon.get('support_url') or {}).get('url')}"
     )
     versions = call("GET", "versions/?filter=all_with_unlisted")
     for version in versions.get("results", []):
         say(f"version {version['version']} channel={version['channel']} file={version['file']['status']}")
+
+
+def links() -> None:
+    listing = json.loads((ROOT / "amo" / "listing.json").read_text())
+    fields = {name: listing[name] for name in ("homepage", "support_url")}
+    call("PATCH", json=fields)
+    say("links set: " + " ".join(f"{name}={value['en-US']}" for name, value in fields.items()))
 
 
 def privacy() -> None:
@@ -125,7 +133,7 @@ def captions() -> None:
             say(f"captioned preview {preview['id']}")
 
 
-COMMANDS = {"status": status, "privacy": privacy, "icon": icon, "screenshots": screenshots, "captions": captions}
+COMMANDS = {"status": status, "links": links, "privacy": privacy, "icon": icon, "screenshots": screenshots, "captions": captions}
 
 if __name__ == "__main__":
     for command in sys.argv[1:] or ["status"]:
