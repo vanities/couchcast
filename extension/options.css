@@ -120,6 +120,11 @@ button:disabled { opacity: 0.6; cursor: progress; }
 .pill[data-kind="warn"] { color: var(--warn); border-color: currentColor; }
 
 .status { margin: 8px 0 0; min-height: 1.5em; color: var(--muted); }
+.status a { color: inherit; font-weight: 600; }
+
+.links { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 4px 4px 0; font-size: 14px; }
+.links a { color: var(--muted); }
+.links a:hover { color: var(--accent); }
 .status[data-kind="ok"] { color: var(--ok); }
 .status[data-kind="error"] { color: var(--error); }
 

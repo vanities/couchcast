@@ -22,13 +22,15 @@ import {
 const log = logger('options');
 // Big Buck Bunny, from the Blender Foundation's channel.
 const TEST_VIDEO = { videoId: 'aqz-KE-bpKQ', listId: null, startSeconds: 0 };
+const HELPER_SETUP = { href: 'https://am2.biz/couchcast#setup', label: 'Set up the helper' };
 
 const $ = (selector) => document.querySelector(selector);
 const errorText = (error) => (error instanceof LoungeError ? error.message : `Something went wrong: ${error.message}`);
 
-function setStatus(element, text, kind = '') {
+function setStatus(element, text, kind = '', link = null) {
   element.textContent = text;
   element.dataset.kind = kind;
+  if (link) element.append(' ', el('a', { href: link.href, textContent: link.label, target: '_blank', rel: 'noopener' }));
 }
 
 function el(tag, props = {}, children = []) {
@@ -197,7 +199,7 @@ async function checkHelper() {
     else setStatus(status, 'The helper is installed, but no Apple TV is paired yet. In a terminal, run: couchcast-helper pair', 'error');
   } catch (error) {
     log.warn(`helper ping failed: ${error.message}`);
-    setStatus(status, "The Couchcast helper isn't installed on this computer yet. The README has the two setup commands.", 'error');
+    setStatus(status, "The Couchcast helper isn't installed on this computer yet. It takes a few commands in Terminal.", 'error', HELPER_SETUP);
   }
 }
 
