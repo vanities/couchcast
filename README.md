@@ -35,7 +35,10 @@ Firefox (Couchcast) --HTTPS--> www.youtube.com/api/lounge <--- YouTube app on th
 
 ## Setup
 
-1. Install the extension. Its settings page opens on first install. Pick how it plays.
+1. Install the extension. Couchcast isn't listed on addons.mozilla.org yet; until it is, install the
+   Mozilla-signed `couchcast-<version>.xpi` (see [Publishing](#publishing)): drag it into a Firefox
+   window, or open `about:addons`, click the gear, and choose **Install Add-on From File**. Its
+   settings page opens on first install. Pick how it plays.
 2. **No-ads mode:** install the helper app (needs [uv](https://docs.astral.sh/uv/) and
    [deno](https://deno.com), which yt-dlp uses for YouTube's player challenges), then pair it:
 
@@ -54,8 +57,14 @@ Firefox (Couchcast) --HTTPS--> www.youtube.com/api/lounge <--- YouTube app on th
 
 ## Privacy
 
-- No-ads mode: the helper asks YouTube for the video's stream (like any player does) and sends that
+Couchcast only sends anything when you cast, and only what that cast needs. Firefox's install
+prompt lists this as **browsing activity**, Mozilla's category for the address of a page you're on.
+
+- No-ads mode: the extension hands the video id, position and speed to the helper on your
+  computer. The helper asks YouTube for the video's stream (like any player does) and sends that
   stream URL and a start time to your Apple TV on your local network.
+- If you turn on **use my Firefox YouTube login** (off by default) and YouTube's bot check blocks
+  the helper, the helper asks once more with your YouTube cookies from Firefox.
 - YouTube-app mode: Couchcast sends the video id, playlist id and start time to YouTube, plus the
   TV code when you link a TV. Requests go out without your YouTube or Google cookies.
 - Nothing goes anywhere else. There is no analytics.
@@ -71,6 +80,7 @@ bun test               # extension unit tests, including a fake Lounge server
 bun run lint           # web-ext lint
 bun run start          # throwaway Firefox profile with the extension loaded
 bun run build          # zip for addons.mozilla.org
+bun run sign           # Mozilla-signed .xpi, see Publishing
 (cd helper && uv run pytest)
 
 # Drive each transport from a terminal against a real TV:
@@ -108,6 +118,45 @@ Logs: the extension uses `[cast]`, `[lounge]`, `[options]` and `[couchcast]` pre
 Inspect). The helper logs to `~/.config/couchcast/helper.log`; set `"debug": true` in
 `~/.config/couchcast/config.json` (or `COUCHCAST_DEBUG=1`) to include pyatv's protocol traffic.
 
+## Publishing
+
+Release Firefox only installs extensions Mozilla has signed. Signing goes through
+addons.mozilla.org (AMO) in one of two channels:
+
+- **Unlisted:** Mozilla checks and signs the extension for you to hand out yourself. It isn't
+  public. `bun run sign` does this and saves the signed `.xpi` in `web-ext-artifacts/`.
+- **Listed:** a public page on addons.mozilla.org, reviewed by Mozilla, with automatic updates.
+  `bun run sign listed` submits it. The first listed version also needs `amo/listing.json`
+  (categories, summary and license); mark it desktop-only, since Couchcast doesn't support Firefox
+  for Android.
+
+One-time setup:
+
+1. Sign in to the [AMO Developer Hub](https://addons.mozilla.org/developers/) with a Mozilla
+   account, and accept the Firefox Add-on Distribution Agreement if it asks.
+2. Generate API credentials on the [API keys page](https://addons.mozilla.org/developers/addon/api/key/)
+   and paste the **JWT issuer** and **JWT secret** into `.dev/amo.env` (git-ignored, owner-only):
+
+   ```
+   WEB_EXT_API_KEY=user:12345678:123
+   WEB_EXT_API_SECRET=...
+   ```
+
+For each release, raise `version` in `extension/manifest.json` (every upload needs a new version),
+then run `bun run sign`.
+
+Things that can't change later or that reviewers look at:
+
+- The add-on ID, `couchcast@vanities`, is permanent once uploaded, in either channel.
+- `data_collection_permissions` declares `browsingActivity` because a cast sends the page's video
+  out of the browser. Mozilla counts data sent to a native app too
+  ([add-on policies](https://extensionworkshop.com/documentation/publish/add-on-policies/),
+  [data collection consent](https://extensionworkshop.com/documentation/develop/firefox-builtin-data-consent/)).
+- `bun run lint` warns that Firefox for Android 140 predates `data_collection_permissions`. That's
+  expected: the extension doesn't target Android.
+
+More: [`web-ext sign`](https://extensionworkshop.com/documentation/develop/web-ext-command-reference/).
+
 ## Limitations
 
 - No-ads mode: the computer has to stay awake while the video plays, because AirPlay video stops
@@ -117,9 +166,13 @@ Inspect). The helper logs to `~/.config/couchcast/helper.log`; set `"debug": tru
 - pyatv is pinned to an unreleased fix for tvOS 26 and newer
   ([postlund/pyatv#2906](https://github.com/postlund/pyatv/issues/2906)), with srptools held below
   2.0 ([postlund/pyatv#2934](https://github.com/postlund/pyatv/issues/2934)). The helper also
-  wraps pyatv's AirPlay 2 commands to start at the right position and speed and to read the TV's
-  position from its events. When YouTube changes things, `uv lock --upgrade-package yt-dlp` usually
-  fixes it.
+  wraps pyatv's AirPlay 2 commands to start at the right position and speed, to read the TV's
+  position from its events, and to notice when the TV leaves the video
+  ([findings shared upstream](https://github.com/postlund/pyatv/pull/2846#issuecomment-6485722270)).
+  When YouTube changes things, `uv lock --upgrade-package yt-dlp` usually fixes it.
+- YouTube can stop handing streams to the helper with its bot check ("Sign in to confirm you're
+  not a bot"). It happened here after many automated test visits from one network. The settings
+  page has an opt-in to retry with your Firefox YouTube login.
 - YouTube-app mode: the Lounge API is unofficial. It can't wake the TV or open the YouTube app.
 - YouTube only, for now.
 
