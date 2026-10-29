@@ -2,7 +2,7 @@
 name = "couchcast-helper"
 version = "0.1.0"
 description = "Plays YouTube on an Apple TV over AirPlay, without ads, for the Couchcast Firefox extension"
-license = "GPL-3.0-or-later"
+license = "GPL-3.0-only"
 requires-python = ">=3.12"
 dependencies = [
     # Released pyatv (0.18.0) can't start AirPlay URL playback on tvOS 26+ (postlund/pyatv#2906).

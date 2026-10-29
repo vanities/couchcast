@@ -185,4 +185,5 @@ More: [`web-ext sign`](https://extensionworkshop.com/documentation/develop/web-e
 
 ## License
 
-GPL-3.0-or-later. See [LICENSE](LICENSE).
+GPL-3.0-only. See [LICENSE](LICENSE). The YouTube Lounge client is ported from
+[pyytlounge](https://github.com/FabioGNR/pyytlounge), which is GPL-3.0 without an "or later" grant.
