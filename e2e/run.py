@@ -2,10 +2,14 @@
 in-player cast button, then check what the extension sent to the helper and, against the real
 Apple TV, whether the TV session holds and where the TV is (from the helper's log and player.json).
 
+Every run is an automated YouTube visit. Runs close together trip YouTube's bot check, which then
+blocks the helper's yt-dlp on the same network as well, so space them out.
+
     uv run --project e2e python e2e/run.py                   # cast, pause Firefox (the default)
     uv run --project e2e python e2e/run.py --no-pause        # cast, leave Firefox playing
     uv run --project e2e python e2e/run.py --next            # switch to a related video first
     uv run --project e2e python e2e/run.py --next --dry-run  # same, and nothing reaches the TV
+    uv run --project e2e python e2e/run.py --reload --dry-run  # reload the extension, then cast
 """
 
 import argparse
@@ -22,6 +26,7 @@ from urllib.parse import parse_qs, urlparse
 
 from selenium import webdriver
 from selenium.webdriver.common.action_chains import ActionChains
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
@@ -29,6 +34,9 @@ from selenium.webdriver.support.ui import WebDriverWait
 ROOT = Path(__file__).resolve().parents[1]
 EXTENSION = ROOT / "extension"
 UBLOCK = ROOT / ".dev" / "ublock-origin.xpi"
+UBLOCK_ID = "uBlock0@raymondhill.net"
+PROFILE = ROOT / ".dev" / "e2e-profile"
+UBLOCK_FIRST_FETCH = 60
 HOME = Path.home() / ".config" / "couchcast"
 FIREFOX = "/Applications/Firefox.app/Contents/MacOS/firefox"
 os.environ.setdefault("SE_AVOID_STATS", "true")
@@ -70,7 +78,19 @@ def prepare_extension(pause_after_cast: bool) -> Path:
     return copy
 
 
-def launch(extension: Path, headless: bool, ublock: bool = True) -> webdriver.Firefox:
+def forget_websites(profile: Path) -> None:
+    """Drop the test profile's cookies and site storage and keep the extensions' storage. With the
+    earlier test visits' cookies kept, YouTube's player failed with "Something went wrong. Refresh
+    or try again later." (2026-10-28), likely an early stage of its bot check."""
+    paths = [profile / "cookies.sqlite", profile / "cookies.sqlite-wal", *(profile / "storage" / "default").glob("http*")]
+    for path in paths:
+        if path.is_dir():
+            shutil.rmtree(path)
+        elif path.exists():
+            path.unlink()
+
+
+def launch(extension: Path, headless: bool, ublock: bool) -> webdriver.Firefox:
     options = Options()
     options.binary_location = FIREFOX
     # media.volume_scale silences everything the test Firefox plays, ads included.
@@ -78,11 +98,20 @@ def launch(extension: Path, headless: bool, ublock: bool = True) -> webdriver.Fi
         options.set_preference(key, value)
     if headless:
         options.add_argument("-headless")
+    if ublock:
+        # Kept between runs so uBlock's filter lists stay current. The lists inside the xpi date
+        # from its release, and with outdated lists YouTube stalls ("Experiencing interruptions?").
+        PROFILE.mkdir(parents=True, exist_ok=True)
+        forget_websites(PROFILE)
+        options.add_argument("-profile")
+        options.add_argument(str(PROFILE))
     t0 = time.monotonic()
     driver = webdriver.Firefox(options=options)
     driver.set_window_size(1600, 1000)
-    if ublock:
+    if ublock and not (PROFILE / "extensions" / f"{UBLOCK_ID}.xpi").exists():
         driver.install_addon(str(UBLOCK))
+        say(f"installed uBlock Origin in {PROFILE.relative_to(ROOT)}; giving it {UBLOCK_FIRST_FETCH}s to fetch current filter lists")
+        time.sleep(UBLOCK_FIRST_FETCH)
     driver.install_addon(str(extension), temporary=True)
     # The extension opens its settings tab on install; stay on the first tab.
     driver.switch_to.window(driver.window_handles[0])
@@ -91,21 +120,37 @@ def launch(extension: Path, headless: bool, ublock: bool = True) -> webdriver.Fi
 
 
 def wait_until_playing(driver: webdriver.Firefox, video_id: str) -> float:
-    """Wait until the player is playing this video itself, past any pre-roll ad (the test
-    profile has no ad blocker)."""
+    """Wait until the player is playing this video itself, past any pre-roll ad."""
+    ad_polls = 0
+    last = {}
 
     def content_playing(d):
-        s = d.execute_script(
+        nonlocal ad_polls, last
+        s = last = d.execute_script(
             "const p = document.getElementById('movie_player'); const v = p && p.querySelector('video');"
             "return v && { id: p.getVideoData?.().video_id, ready: v.readyState, t: v.currentTime, paused: v.paused,"
             " rate: v.playbackRate, ad: p.classList.contains('ad-showing') }"
         )
+        ad_polls += bool(s and s["ad"])
         ready = s and s["id"] == video_id and s["ready"] >= 2 and not s["ad"] and not s["paused"] and s["t"] > 1
         return s if ready else None
 
-    state = WebDriverWait(driver, 120, poll_frequency=1).until(content_playing)
+    try:
+        state = WebDriverWait(driver, 120, poll_frequency=1).until(content_playing)
+    except TimeoutException:
+        text = driver.execute_script("return document.body.innerText")
+        shot = ROOT / ".dev" / "e2e-failure.png"
+        driver.save_screenshot(str(shot))
+        say(f"never started: url={driver.current_url} last player state={last} screenshot={shot}")
+        if "not a bot" in text:
+            raise RuntimeError(
+                "YouTube is showing its bot check (Sign in to confirm you're not a bot). It blocks the helper's "
+                "yt-dlp on this network too, so stop running tests until it clears."
+            ) from None
+        stalled = " (YouTube: Experiencing interruptions?)" if "Experiencing interruptions" in text else ""
+        raise RuntimeError(f"{video_id} never started playing{stalled}") from None
     time.sleep(3)
-    say(f"firefox playing {video_id} itself: t={state['t']:.1f}s rate={state['rate']}")
+    say(f"firefox playing {video_id} itself: t={state['t']:.1f}s rate={state['rate']} ads={f'~{ad_polls}s' if ad_polls else 'none'}")
     return state["t"]
 
 
@@ -148,6 +193,17 @@ def switch_to_related(driver: webdriver.Firefox) -> str:
     WebDriverWait(driver, 30).until(lambda d: video_id_of(d.current_url) == target)
     assert driver.execute_script("return window.couchcastE2eMark === true"), "the page reloaded instead of switching videos in place"
     return target
+
+
+def reload_extension(driver: webdriver.Firefox, extension: Path) -> None:
+    """Install the extension over itself, as about:debugging's Reload or an update does, with
+    the YouTube tab left open."""
+    tab = driver.current_window_handle
+    driver.install_addon(str(extension), temporary=True)
+    time.sleep(3)
+    driver.switch_to.window(tab)
+    buttons = driver.execute_script("return document.querySelectorAll('#movie_player .couchcast-button').length")
+    say(f"reloaded the extension with the tab open; cast buttons in the player now: {buttons}")
 
 
 def click_cast(driver: webdriver.Firefox) -> str:
@@ -197,11 +253,11 @@ def main() -> int:
     parser.add_argument("--url", default="https://www.youtube.com/watch?v=kYnwCx2SNYY&t=257")
     parser.add_argument("--next", action="store_true", help="switch to a related video inside YouTube, then cast that one")
     parser.add_argument("--dry-run", action="store_true", help="only check what the extension sends; nothing reaches the TV")
+    parser.add_argument("--reload", action="store_true", help="reload the extension with the tab open, then cast")
     parser.add_argument("--pause", action=argparse.BooleanOptionalAction, default=True, help="pause Firefox after casting")
     parser.add_argument("--watch", type=int, default=20, help="seconds to watch the TV session")
     parser.add_argument("--headless", action="store_true")
-    # A fresh profile's uBlock hasn't fetched its lists yet, and YouTube stalls playback.
-    parser.add_argument("--ublock", action="store_true", help="install uBlock Origin in the test profile")
+    parser.add_argument("--ublock", action=argparse.BooleanOptionalAction, default=True, help="block ads with uBlock Origin")
     args = parser.parse_args()
 
     home = HOME
@@ -213,7 +269,8 @@ def main() -> int:
         say(f"dry run: helper home is {home}, nothing will reach the TV")
     log, player_file = home / "helper.log", home / "player.json"
 
-    driver = launch(prepare_extension(args.pause), args.headless, ublock=args.ublock)
+    extension = prepare_extension(args.pause)
+    driver = launch(extension, args.headless, ublock=args.ublock)
     try:
         driver.get(args.url)
         expected = video_id_of(args.url)
@@ -221,6 +278,8 @@ def main() -> int:
         if args.next:
             expected = switch_to_related(driver)
             local_t = wait_until_playing(driver, expected)
+        if args.reload:
+            reload_extension(driver, extension)
         log_offset = log.stat().st_size if log.exists() else 0
         cast_at = time.time()
         say(f"cast result: {click_cast(driver)}")

@@ -77,13 +77,20 @@ bun run lounge pair 123456789012
 bun run lounge cast "https://www.youtube.com/watch?v=aqz-KE-bpKQ" --watch=15
 ```
 
-End-to-end test against the real TV: a real Firefox (driven by Selenium) with a pre-configured
-copy of the extension opens a YouTube video, clicks the in-player cast button, and checks from the
-TV's own events that the session holds and the position carried over. It plays on the TV.
+End-to-end test: a real Firefox (driven by Selenium) with a pre-configured copy of the extension
+opens a YouTube video, clicks the in-player cast button, and checks what reached the helper and,
+from the TV's own events, that the session holds and the position carried over. It plays on the
+TV unless you pass `--dry-run`. The test Firefox is muted and blocks ads with uBlock Origin, in a
+profile kept at `.dev/e2e-profile` so uBlock's filter lists stay current.
 
 ```bash
-uv run --project e2e python e2e/run.py            # add --no-pause, --watch 60, --url ...
+uv run --project e2e python e2e/run.py                    # add --no-pause, --watch 60, --url ...
+uv run --project e2e python e2e/run.py --next --dry-run   # switch videos in the page first; TV untouched
 ```
+
+Every run is still an automated YouTube visit, dry run included. Runs close together trip YouTube's
+bot check ("Sign in to confirm you're not a bot"), which then blocks the helper's yt-dlp on the
+same network too, so space runs out.
 
 Logs: the extension uses `[cast]`, `[lounge]`, `[options]` and `[couchcast]` prefixes (about:debugging,
 Inspect). The helper logs to `~/.config/couchcast/helper.log`; set `"debug": true` in
