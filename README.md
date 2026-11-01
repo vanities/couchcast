@@ -7,10 +7,9 @@ in Firefox.
 
 Chrome has a Cast button and Safari has AirPlay. Firefox has neither, so Couchcast fills the gap.
 
-**Get it:** [Couchcast on addons.mozilla.org](https://addons.mozilla.org/firefox/addon/couchcast/)
-(submitted for Mozilla's review; the page goes live once it's approved), or the signed `.xpi` from the
-[latest release](https://github.com/vanities/couchcast/releases/latest). Website:
-[am2.biz/couchcast](https://am2.biz/couchcast), with [support](https://am2.biz/couchcast/support)
+**Get it:** [Couchcast on addons.mozilla.org](https://addons.mozilla.org/firefox/addon/couchcast/),
+or the signed `.xpi` from the [latest release](https://github.com/vanities/couchcast/releases/latest).
+Website: [am2.biz/couchcast](https://am2.biz/couchcast), with [support](https://am2.biz/couchcast/support)
 and the [privacy policy](https://am2.biz/couchcast/privacy). Source:
 [github.com/vanities/couchcast](https://github.com/vanities/couchcast). Problems or ideas:
 [issues](https://github.com/vanities/couchcast/issues).
@@ -44,8 +43,8 @@ Firefox (Couchcast) --HTTPS--> www.youtube.com/api/lounge <--- YouTube app on th
 ## Setup
 
 1. Install the extension (desktop Firefox 142 or newer):
-   - from [addons.mozilla.org](https://addons.mozilla.org/firefox/addon/couchcast/), once Mozilla's
-     review is done, or
+   - from [addons.mozilla.org](https://addons.mozilla.org/firefox/addon/couchcast/), which keeps it
+     up to date, or
    - from the [latest release](https://github.com/vanities/couchcast/releases/latest): download
      `couchcast-<version>.xpi` (signed by Mozilla) and drag it into a Firefox window.
 
